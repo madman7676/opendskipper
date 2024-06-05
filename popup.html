@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Налаштування Автоматичного Перемотування Відео</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      width: 200px;
+      background-color: var(--background-color, white);
+      color: var(--text-color, black);
+    }
+
+    label {
+      display: block;
+      margin-bottom: 10px;
+    }
+
+    input {
+      margin-bottom: 20px;
+      width: 100%;
+      background-color: var(--input-background-color, white);
+      color: var(--input-text-color, black);
+      border: 1px solid var(--input-border-color, #ccc);
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background-color: var(--button-background-color, #007bff);
+      color: var(--button-text-color, white);
+      border: none;
+      cursor: pointer;
+	  margin-top: 10px;
+    }
+
+    button:hover {
+      background-color: var(--button-hover-background-color, #0056b3);
+    }
+	
+	#message {
+      display: none;
+      padding: 10px;
+      margin-top: 10px;
+      border: 1px solid #ccc;
+      background-color: #f0f0f0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body {
+        --background-color: #121212;
+        --text-color: #ffffff;
+        --input-background-color: #333333;
+        --input-text-color: #ffffff;
+        --input-border-color: #444444;
+        --button-background-color: #1a73e8;
+        --button-text-color: #ffffff;
+        --button-hover-background-color: #174ea6;
+      }
+	  #message {
+        background-color: #333;
+        color: #e0e0e0;
+        border: 1px solid #444;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Налаштування</h1>
+  <label>
+    Час перемотки на початку (секунди):
+    <input type="number" id="startTime" min="0" value="5">
+  </label>
+  <label>
+    Час перемотки на кінці (секунди):
+    <input type="number" id="endTime" min="0" value="5">
+  </label>
+  <button id="saveButton">Зберегти</button>
+  <button id="disableButton">Disable Extension</button>
+  
+  <div id="message"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

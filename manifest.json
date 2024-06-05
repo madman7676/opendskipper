@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "opendskipper",
+  "version": "1.0",
+  "description": "Розширення для автоматичного перемотування початку та кінця відео в відеоплеєрах.",
+  "permissions": [
+    "activeTab",
+	"storage",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+		"16": "images/forward-button16.png",
+		"48": "images/forward-button48.png",
+		"128": "images/forward-button128.png"
+    }
+  },
+  "icons": {
+    "16": "images/forward-button16.png",
+    "48": "images/forward-button48.png",
+    "128": "images/forward-button128.png"
+  },
+  "options_page": "options.html"
+}

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Налаштування Автоматичного Перемотування Відео</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 10px;
+    }
+    input {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Налаштування</h1>
+  <label>
+    Час перемотки на початку (секунди):
+    <input type="number" id="startTime" min="0" value="5">
+  </label>
+  <label>
+    Час перемотки на кінці (секунди):
+    <input type="number" id="endTime" min="0" value="5">
+  </label>
+  <button id="saveButton">Зберегти</button>
+
+  <script src="options.js"></script>
+</body>
+</html>
