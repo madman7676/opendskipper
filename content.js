@@ -4,7 +4,7 @@
   let SKIP_START_SECONDS = 0;
   let SKIP_END_SECONDS = 0;
   let endingSkipped = false;
-  let isEnabled = true;
+  let enabled = true;
 
   // Function to apply new settings
   function applySettings(skipStart, skipEnd) {
@@ -43,7 +43,7 @@
 
     // Event handler for timeupdate event of video
     node.addEventListener("timeupdate", function() {
-      if (isEnabled) {
+      if (enabled) {
         const currentTime = node.currentTime;
         console.log("!!! Current time:", currentTime);
         if (SKIP_START_SECONDS) skipOpening(node);
@@ -119,9 +119,9 @@
     if (request.action === 'applySettings') {
       applySettings(request.skipStartSeconds, request.skipEndSeconds);
     } else if (request.action === 'enableExtension') {
-      isEnabled = true;
+      enabled = true;
     } else if (request.action === 'disableExtension') {
-      isEnabled = false;
+      enabled = false;
     }
   });
 

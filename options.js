@@ -5,8 +5,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Завантажити збережені налаштування
   chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds'], function(data) {
-    startTimeInput.value = data.skipStartSeconds || 5;
-    endTimeInput.value = data.skipEndSeconds || 5;
+    startTimeInput.value = data.skipStartSeconds || 0;
+    endTimeInput.value = data.skipEndSeconds || 0;
   });
 
   // Зберегти налаштування при натисканні на кнопку

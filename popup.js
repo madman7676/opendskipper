@@ -14,11 +14,11 @@ document.addEventListener('DOMContentLoaded', function() {
 	}
 
   // Отримати поточні значення налаштувань з chrome.storage
-  chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds', 'isEnabled'], function(data) {
+  chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds', 'enabled'], function(data) {
     startTimeInput.value = data.skipStartSeconds || 0;
     endTimeInput.value = data.skipEndSeconds || 0;
-	const isEnabled = data.isEnabled !== false; // За замовчуванням true, якщо isEnabled не встановлено
-    disableButton.textContent = isEnabled ? 'Disable Extension' : 'Enable Extension';
+	  const enabled = data.enabled !== false; // За замовчуванням true, якщо enabled не встановлено
+    disableButton.textContent = enabled ? 'Вимкнути розширення' : 'Увімкнути розширення';
   });
 
   // Обробник події для збереження змін
@@ -49,15 +49,15 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Обробник події для вимкнення розширення
   disableButton.addEventListener('click', function() {
-    chrome.storage.sync.get('isEnabled', function(data) {
-      const newStatus = data.isEnabled === false ? true : false;
-      chrome.storage.sync.set({ isEnabled: newStatus }, function() {
+    chrome.storage.sync.get('enabled', function(data) {
+      const newStatus = data.enabled === false ? true : false;
+      chrome.storage.sync.set({ enabled: newStatus }, function() {
         if (chrome.runtime.lastError) {
           console.error(chrome.runtime.lastError);
           return;
         }
 
-        disableButton.textContent = newStatus ? 'Disable Extension' : 'Enable Extension';
+        disableButton.textContent = newStatus ? 'Вимкнути розширення' : 'Увімкнути розширення';
 
         chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
           tabs.forEach(tab => {
@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded', function() {
           });
         });
 
-        showMessage(newStatus ? 'Extension enabled!' : 'Extension disabled!');
+        showMessage(newStatus ? 'Розширення працює!' : 'Розширення вимкнуте!');
       });
     });
   });
