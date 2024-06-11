@@ -14,10 +14,10 @@
   }
 
   // Get current settings values from chrome.storage
-  chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds'], function(data) {
+  chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds', 'enabled'], function(data) {
     SKIP_START_SECONDS = data.skipStartSeconds || 0;
     SKIP_END_SECONDS = data.skipEndSeconds || 0;
-    enabled = data.enabled;
+    enabled = data.enabled || true;
   });
 
   // Message handler from popup.js
