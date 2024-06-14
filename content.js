@@ -17,7 +17,7 @@
   chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds', 'enabled'], function(data) {
     SKIP_START_SECONDS = data.skipStartSeconds || 0;
     SKIP_END_SECONDS = data.skipEndSeconds || 0;
-    enabled = data.enabled || true;
+    enabled = data.enabled;
   });
 
   // Message handler from popup.js
@@ -34,11 +34,11 @@
   // Function to check and skip the start of the video
   function skipOpening(video) {
 
-    if (video.currentTime && (video.currentTime < SKIP_START_SECONDS)) {
+    if ((video.currentTime > 1) && (video.currentTime < SKIP_START_SECONDS)) {
       console.log("!!! Skipping to start");
       video.currentTime = SKIP_START_SECONDS;
-      startSkipped = true;
-      endSkipped = false;
+      // startSkipped = true;
+      // endSkipped = false;
     }
   }
 
@@ -48,8 +48,8 @@
     if ((video.duration - video.currentTime) < SKIP_END_SECONDS) {
       console.log("!!! Skipping to end");
       video.currentTime = video.duration;
-      startSkipped = false;
-      endingSkipped = true;
+      // startSkipped = false;
+      // endingSkipped = true;
     }
   }
 
@@ -58,18 +58,30 @@
     console.log("!!! Skip end:", SKIP_END_SECONDS);
     console.log("!!! Enabled:", enabled);
     console.log("!!! New video element added:", node);
-    console.log("!!! Video duration:", node.duration);
+    startSkipped = false;
+    endSkipped = false;
+    let currentSrc = "";
 
     // Event handler for timeupdate event of video
     node.addEventListener("timeupdate", function() {
       if (enabled) {
         console.log("!!! Current time:", node.currentTime);
         console.log("!!! Video duration: ", node.duration);
+        // console.log("!!!! Video link", node.currentSrc);
+
+        if (currentSrc !== node.currentSrc){
+          console.log("!!! New video is found");
+          startSkipped = false;
+          endSkipped = false;
+          currentSrc = node.currentSrc;
+        }
+
         if (SKIP_START_SECONDS && !startSkipped) skipOpening(node);
         if (SKIP_END_SECONDS && !endSkipped) skipEnding(node);
 
-        if (SKIP_END_SECONDS && (node.duration-node.currentTime) <= 2 ) startSkipped = false;
-        if (SKIP_START_SECONDS && node.currentTime <= 1) endSkipped = false;
+        // console.log("!!! If start skip (duration-currentTime): ", node.duration-node.currentTime);
+        // if (!SKIP_END_SECONDS && (node.duration-node.currentTime) <= 20 ) startSkipped = false;
+        // if (!SKIP_START_SECONDS && node.currentTime <= 1) endSkipped = false;
       }
     });
   }
