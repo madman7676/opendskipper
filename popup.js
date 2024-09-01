@@ -1,4 +1,39 @@
 document.addEventListener('DOMContentLoaded', function() {
+
+  const expandButton = document.getElementById('expandButton');
+  const calculator = document.getElementById('calculator');
+  const body = document.body;
+
+  expandButton.addEventListener('click', () => {
+    if (calculator.style.display === 'none' || calculator.style.display === '') {
+      calculator.style.display = 'block';
+      body.style.width = '200px';
+      body.style.height = '350px';
+      expandButton.textContent = '↖';
+    } else {
+      calculator.style.display = 'none';
+      body.style.width = '200px';
+      body.style.height = 'auto';
+      expandButton.textContent = '↘';
+    }
+  });
+
+  document.getElementById('calculateButton').addEventListener('click', () => {
+    const startMinutes = parseInt(document.getElementById('startMinutes').value) || 0;
+    const startSeconds = parseInt(document.getElementById('startSeconds').value) || 0;
+    const endMinutes = parseInt(document.getElementById('endMinutes').value) || 0;
+    const endSeconds = parseInt(document.getElementById('endSeconds').value) || 0;
+  
+    const startTime = (startMinutes * 60) + startSeconds;
+    const endTime = (endMinutes * 60) + endSeconds;
+  
+    let diffTime = endTime - startTime;
+    const resultSeconds = diffTime;
+  
+    document.getElementById('calcResult').textContent = `Різниця: ${resultSeconds} сек`;
+  });
+  
+
 	const startTimeInput = document.getElementById('startTime');
 	const endTimeInput = document.getElementById('endTime');
 	const saveButton = document.getElementById('saveButton');
