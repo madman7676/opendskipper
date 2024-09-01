@@ -37,19 +37,15 @@
     if ((video.currentTime > 1) && (video.currentTime < SKIP_START_SECONDS)) {
       console.log("!!! Skipping to start");
       video.currentTime = SKIP_START_SECONDS;
-      // startSkipped = true;
-      // endSkipped = false;
     }
   }
 
   // Function to check and skip the end of the video
   function skipEnding(video) {
 
-    if ((video.duration - video.currentTime) < SKIP_END_SECONDS) {
+    if (((video.duration - video.currentTime) > 0.2) && ((video.duration - video.currentTime) < SKIP_END_SECONDS)) {
       console.log("!!! Skipping to end");
-      video.currentTime = video.duration;
-      // startSkipped = false;
-      // endingSkipped = true;
+      video.currentTime = video.duration-0.1;
     }
   }
 
@@ -67,7 +63,6 @@
       if (enabled) {
         console.log("!!! Current time:", node.currentTime);
         console.log("!!! Video duration: ", node.duration);
-        // console.log("!!!! Video link", node.currentSrc);
 
         if (currentSrc !== node.currentSrc){
           console.log("!!! New video is found");
@@ -79,40 +74,9 @@
         if (SKIP_START_SECONDS && !startSkipped) skipOpening(node);
         if (SKIP_END_SECONDS && !endSkipped) skipEnding(node);
 
-        // console.log("!!! If start skip (duration-currentTime): ", node.duration-node.currentTime);
-        // if (!SKIP_END_SECONDS && (node.duration-node.currentTime) <= 20 ) startSkipped = false;
-        // if (!SKIP_START_SECONDS && node.currentTime <= 1) endSkipped = false;
       }
     });
   }
-
-  // function handleIframe(iframe) {
-  //   iframe.addEventListener('load', () => {
-  //     const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
-  //     // Monitor changes inside the iframe
-  //     const iframeObserver = new MutationObserver((mutationsList) => {
-  //       for (const mutation of mutationsList) {
-  //         if (mutation.type === 'childList') {
-  //           mutation.addedNodes.forEach(node => {
-  //             if (node.tagName === 'VIDEO') {
-  //               console.log("!!! Video found in iframe:", node);
-  //               handleVideo(node);
-  //             }
-  //           });
-  //         }
-  //       }
-  //     });
-
-  //     iframeObserver.observe(iframeDocument.body, { childList: true, subtree: true });
-      
-  //     // Initial search for videos in the iframe
-  //     const videos = iframeDocument.getElementsByTagName('video');
-  //     for (const video of videos) {
-  //       console.log("!!! Initial video found in iframe:", video);
-  //       handleVideo(video);
-  //     }
-  //   });
-  // }
 
   // Function to handle DOM changes
   function handleDOMChanges(mutationsList, observer) {
@@ -122,15 +86,6 @@
           if (node.tagName === 'VIDEO') {
             handleVideo(node);
           } 
-          // else if (node.tagName === 'IFRAME') {
-          //   console.log("!!! Iframe is found", node);
-          //   // Process videos inside iframe
-          //   try {
-          //     handleIframe(node);
-          //   } catch (e) {
-          //     console.error("!!! Could not access iframe content:", e);
-          //   }
-          // }
         });
       }
     }
