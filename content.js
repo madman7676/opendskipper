@@ -97,4 +97,22 @@
   // Start observing changes in the DOM
   observer.observe(document.body, { childList: true, subtree: true });
 
+
+    // Функція для отримання поточного часу відео
+    function getCurrentVideoTime() {
+      const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
+      if (video) {
+        return video.currentTime;
+      }
+      return null;  // Повернути null, якщо відео не знайдено
+    }
+  
+    // Додаємо обробник для повідомлень від popup.js
+    chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+      if (request.action === 'getCurrentTime') {
+        const currentTime = getCurrentVideoTime();
+        sendResponse({ currentTime: currentTime });
+      }
+    });
+    
 })();

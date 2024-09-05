@@ -24,7 +24,7 @@
     }
 
     input {
-      margin-bottom: 20px;
+      /* margin-bottom: 20px; */
       width: 100%;
       background-color: var(--input-background-color, white);
       color: var(--input-text-color, black);
@@ -93,6 +93,19 @@
       text-align: center;
     }
 
+    .button-container {
+      display: flex;
+      align-items: center;
+      gap: 5px; /* Відстань між кнопками */
+    }
+
+    .button-container button {
+      margin: 0;
+      padding: 0;
+      background-color: var(--background-color);
+      width: 20px;
+    }
+
     @media (prefers-color-scheme: dark) {
       body {
         --background-color: #121212;
@@ -121,11 +134,17 @@
   <h1>Налаштування</h1>
   <label>
     Час перемотки на початку (секунди):
-    <input type="number" id="startTime" min="0" value="5">
+    <div class="button-container">
+      <input type="number" id="startTime" min="0" value="5">
+      <button id="setStart">←</button>
+    </div>
   </label>
   <label>
     Час перемотки на кінці (секунди):
-    <input type="number" id="endTime" min="0" value="5">
+    <div class="button-container">
+      <input type="number" id="endTime" min="0" value="5">
+      <button id="setEnd">←</button>
+    </div>
   </label>
   <button id="saveButton">Зберегти</button>
   <button id="disableButton">Вимкнути розширення</button>

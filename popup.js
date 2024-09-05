@@ -104,4 +104,30 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
   });
+
+  const setStartButton = document.getElementById('setStart');
+  const setEndButton = document.getElementById('setEnd');
+
+  // Отримати поточний час відео і вставити його в поле "startTime"
+  setStartButton.addEventListener('click', function() {
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      chrome.tabs.sendMessage(tabs[0].id, { action: 'getCurrentTime' }, function(response) {
+        if (response && response.currentTime !== undefined) {
+          document.getElementById('startTime').value = Math.floor(response.currentTime);
+        }
+      });
+    });
+  });
+
+  // Отримати поточний час відео і вставити його в поле "endTime"
+  setEndButton.addEventListener('click', function() {
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      chrome.tabs.sendMessage(tabs[0].id, { action: 'getCurrentTime' }, function(response) {
+        if (response && response.currentTime !== undefined) {
+          document.getElementById('endTime').value = Math.floor(response.currentTime);
+        }
+      });
+    });
+  });
+
 });
