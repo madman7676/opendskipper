@@ -14,10 +14,16 @@
   }
 
   // Get current settings values from chrome.storage
-  chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds', 'enabled'], function(data) {
+  chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds', 'enabled', 'blacklist'], function(data) {
     SKIP_START_SECONDS = data.skipStartSeconds || 0;
     SKIP_END_SECONDS = data.skipEndSeconds || 0;
-    enabled = data.enabled;
+    
+    const blacklist = data.blacklist || [];
+    const currentDomain = window.location.hostname;
+    if (blacklist.includes(currentDomain)) {
+      console.log(`!!! Extension is disabled on ${currentDomain}`);
+      enabled = false;  // Якщо домен у blacklist, не запускати скрипт
+    } else {enabled = data.enabled;}
   });
 
   // Message handler from popup.js

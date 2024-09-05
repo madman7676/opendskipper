@@ -1,0 +1,145 @@
+:root {
+    color-scheme: light dark;
+  }
+
+  body {
+    font-family: Arial, sans-serif;
+    padding: 20px;
+    width: 200px;
+    background-color: var(--background-color, white);
+    color: var(--text-color, black);
+    transition: width 0.3s, height 0.3s;
+    position: relative;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 10px;
+  }
+
+  input {
+    /* margin-bottom: 20px; */
+    width: 100%;
+    background-color: var(--input-background-color, white);
+    color: var(--input-text-color, black);
+    border: 1px solid var(--input-border-color, #ccc);
+  }
+
+  button {
+    width: 100%;
+    padding: 10px;
+    background-color: var(--button-background-color, #007bff);
+    color: var(--button-text-color, white);
+    border: none;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+
+  .button:hover {
+    background-color: var(--button-hover-background-color, #0056b3);
+  }
+
+  #message {
+    display: none;
+    padding: 10px;
+    margin-top: 10px;
+    border: 1px solid #ccc;
+    background-color: #f0f0f0;
+  }
+
+  #calcButton {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+  }
+
+  #calculator {
+    display: none;
+    margin-top: 20px;
+  }
+
+  #calculator label {
+    display: flex;
+    align-items: center;
+    gap: 5px; /* Відстань між полями */
+  }
+
+  #calculator input[type="number"] {
+    margin: 0;
+  }
+
+  /* #setCalcButton{
+    margin-bottom: 5px;
+  } */
+
+  #startMinutes, #startSeconds, #endMinutes, #endSeconds {
+    width: 37px;
+    text-align: center;
+  }
+
+  #showBlacklistButton{
+    position: fixed;
+    bottom: 10px;
+    right: 50%;
+  }
+
+  .button-container {
+    display: flex;
+    align-items: center;
+    gap: 5px; /* Відстань між кнопками */
+  }
+
+  .button-container button {
+    margin: 0;
+    padding: 0;
+    background-color: var(--background-color);
+    width: 20px;
+  }
+
+  .expandButton {
+    width: 10px;
+    height: 10px;
+    background-color: var(--background-color);
+    color: var(--button-text-color, white);
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+   /* Стиль для textarea */
+   #blacklistSection {
+    display: none; /* Спочатку прихована */
+    margin-top: 20px;
+  }
+  #blacklistText {
+    width: 100%;
+    height: 100px;
+    margin-bottom: 10px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      --background-color: #121212;
+      --text-color: #ffffff;
+      --input-background-color: #333333;
+      --input-text-color: #ffffff;
+      --input-border-color: #444444;
+      --button-background-color: #1a73e8;
+      --button-text-color: #ffffff;
+      --button-hover-background-color: #174ea6;
+    }
+
+    #message {
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #444;
+    }
+
+    #expandButton {
+      background-color: var(--background-color);
+    }
+  }

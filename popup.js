@@ -1,6 +1,19 @@
 document.addEventListener('DOMContentLoaded', function() {
 
-  const expandButton = document.getElementById('expandButton');
+  chrome.storage.sync.get({ blacklist: [] }, function(data) {
+    const blacklist = data.blacklist;
+    // Safeguard in case blacklist is not an array
+    if (!Array.isArray(blacklist)) {
+      console.error("Error: blacklist is not an array. Resetting to an empty array.");
+      chrome.storage.sync.set({ blacklist: [] });
+      return;
+    }
+    // Now you can safely use .join()
+    const blacklistText = blacklist.join("\n");
+    document.getElementById('blacklistText').value = blacklistText;
+  });
+
+  const expandButton = document.getElementById('calcButton');
   const calculator = document.getElementById('calculator');
   const body = document.body;
 
@@ -8,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (calculator.style.display === 'none' || calculator.style.display === '') {
       calculator.style.display = 'block';
       body.style.width = '200px';
-      body.style.height = '350px';
+      body.style.height = 'auto';
       expandButton.textContent = '↖';
     } else {
       calculator.style.display = 'none';
@@ -18,7 +31,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  document.getElementById('calculateButton').addEventListener('click', () => {
+  document.getElementById('setCalcButton').addEventListener('click', () => {
     const startMinutes = parseInt(document.getElementById('startMinutes').value) || 0;
     const startSeconds = parseInt(document.getElementById('startSeconds').value) || 0;
     const endMinutes = parseInt(document.getElementById('endMinutes').value) || 0;
@@ -129,5 +142,48 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
   });
+
+
+  const showBlacklistButton = document.getElementById('showBlacklistButton');
+  const blacklistSection = document.getElementById('blacklistSection');
+  const blacklistText = document.getElementById('blacklistText');
+  const saveBlacklistButton = document.getElementById('saveBlacklistButton');
+
+    // Відображення/приховування blacklist textarea
+    showBlacklistButton.addEventListener('click', function() {
+      if (blacklistSection.style.display === 'none' || blacklistSection.style.display === '') {
+        blacklistSection.style.display = 'block';
+        showBlacklistButton.textContent = '↑';
+      } else {
+        blacklistSection.style.display = 'none';
+        showBlacklistButton.textContent = '↓';
+      }
+      
+      // Отримати поточний blacklist з chrome.storage
+      chrome.storage.sync.get('blacklist', function(data) {
+        const blacklist = data.blacklist || [];
+        if (Array.isArray(blacklist)) {
+          // Виводимо кожен домен на новий рядок у textarea
+          blacklistText.value = blacklist.join('\n');
+        }
+      });
+    });
+  
+    // Збереження blacklist у chrome.storage
+    saveBlacklistButton.addEventListener('click', function() {
+      const blacklistRaw = blacklistText.value;
+
+      // Розбиваємо текст на масив доменів, використовуючи нові рядки
+      const blacklist = blacklistRaw.split('\n').map(domain => domain.trim()).filter(domain => domain !== '');
+  
+      // Збереження оновленого чорного списку у chrome.storage
+      chrome.storage.sync.set({ blacklist: blacklist }, function() {
+        if (chrome.runtime.lastError) {
+          console.error(chrome.runtime.lastError);
+          return;
+        }
+        alert('Чорний список доменів збережено!');
+      });
+    });
 
 });
