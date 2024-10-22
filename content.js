@@ -90,8 +90,24 @@
       if (mutation.type === 'childList') {
         mutation.addedNodes.forEach(node => {
           if (node.tagName === 'VIDEO') {
+            // console.log("Video is found " + "\n" + node);
+            
             handleVideo(node);
-          } 
+          }
+          else if (node.tagName) {
+            const videos = node.querySelectorAll('video');
+            if (videos.length != 0){
+              videos.forEach(video => {
+                handleVideo(video);
+              });
+            }
+            else if (node.className == 'vsc-controller') {
+              const vscVideo = node.parentElement.querySelectorAll('video');
+              vscVideo.forEach(video => {
+                handleVideo(video);
+              });
+            }
+          }
         });
       }
     }
@@ -107,8 +123,20 @@
     // Функція для отримання поточного часу відео
     function getCurrentVideoTime() {
       const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
+      console.log(video);
+      console.log("Time - " + video.currentTime);
       if (video) {
         return video.currentTime;
+      }
+      return null;  // Повернути null, якщо відео не знайдено
+    }
+
+    function getVideoDuration(){
+      const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
+      console.log(video);
+      console.log("Time - " + video.duration);
+      if (video) {
+        return video.duration;
       }
       return null;  // Повернути null, якщо відео не знайдено
     }
@@ -117,7 +145,10 @@
     chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
       if (request.action === 'getCurrentTime') {
         const currentTime = getCurrentVideoTime();
-        sendResponse({ currentTime: currentTime });
+        const videoDuration = getVideoDuration();
+        console.log("Current time " + currentTime);
+        console.log("Video duration " + videoDuration);
+        sendResponse({ currentTime: currentTime, videoDuration: videoDuration });
       }
     });
     
