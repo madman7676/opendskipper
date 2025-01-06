@@ -120,36 +120,36 @@
   observer.observe(document.body, { childList: true, subtree: true });
 
 
-    // Функція для отримання поточного часу відео
-    function getCurrentVideoTime() {
-      const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
-      console.log(video);
-      console.log("Time - " + video.currentTime);
-      if (video) {
-        return video.currentTime;
-      }
-      return null;  // Повернути null, якщо відео не знайдено
+  // Функція для отримання поточного часу відео
+  function getCurrentVideoTime() {
+    const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
+    console.log(video);
+    console.log("Time - " + video.currentTime);
+    if (video) {
+      return video.currentTime;
     }
+    return null;  // Повернути null, якщо відео не знайдено
+  }
 
-    function getVideoDuration(){
-      const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
-      console.log(video);
-      console.log("Time - " + video.duration);
-      if (video) {
-        return video.duration;
-      }
-      return null;  // Повернути null, якщо відео не знайдено
+  function getVideoDuration(){
+    const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
+    console.log(video);
+    console.log("Time - " + video.duration);
+    if (video) {
+      return video.duration;
     }
-  
-    // Додаємо обробник для повідомлень від popup.js
-    chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-      if (request.action === 'getCurrentTime') {
-        const currentTime = getCurrentVideoTime();
-        const videoDuration = getVideoDuration();
-        console.log("Current time " + currentTime);
-        console.log("Video duration " + videoDuration);
-        sendResponse({ currentTime: currentTime, videoDuration: videoDuration });
-      }
-    });
+    return null;  // Повернути null, якщо відео не знайдено
+  }
+
+  // Додаємо обробник для повідомлень від popup.js
+  chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+    if (request.action === 'getCurrentTime') {
+      const currentTime = getCurrentVideoTime();
+      const videoDuration = getVideoDuration();
+      console.log("Current time " + currentTime);
+      console.log("Video duration " + videoDuration);
+      sendResponse({ currentTime: currentTime, videoDuration: videoDuration });
+    }
+  });
     
 })();
