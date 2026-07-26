@@ -7,6 +7,33 @@
   let startSkipped = false;
   let enabled = true;
 
+  // Функція для отримання selectedElement з chrome.storage та натискання елемента
+  function clickSelectedElement() {
+    chrome.storage.sync.get(['selectedElement'], (result) => {
+        const xpath = result.selectedElement;
+
+        if (!xpath) {
+            console.error("XPath для елемента не знайдено у chrome.storage.");
+            return;
+        }
+
+        const element = document.evaluate(
+            xpath,
+            document,
+            null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE,
+            null
+        ).singleNodeValue;
+
+        if (element) {
+            element.click(); // Натискаємо на елемент
+            console.log("Елемент натиснуто за XPath:", xpath);
+        } else {
+            console.error("Елемент не знайдено за вказаним XPath:", xpath);
+        }
+    });
+  }
+
   // Function to apply new settings
   function applySettings(skipStart, skipEnd) {
     SKIP_START_SECONDS = skipStart;
@@ -14,10 +41,16 @@
   }
 
   // Get current settings values from chrome.storage
-  chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds', 'enabled'], function(data) {
+  chrome.storage.sync.get(['skipStartSeconds', 'skipEndSeconds', 'enabled', 'blacklist'], function(data) {
     SKIP_START_SECONDS = data.skipStartSeconds || 0;
     SKIP_END_SECONDS = data.skipEndSeconds || 0;
-    enabled = data.enabled;
+    
+    const blacklist = data.blacklist || [];
+    const currentDomain = window.location.hostname;
+    if (blacklist.includes(currentDomain)) {
+      console.log(`!!! Extension is disabled on ${currentDomain}`);
+      enabled = false;  // Якщо домен у blacklist, не запускати скрипт
+    } else {enabled = data.enabled;}
   });
 
   // Message handler from popup.js
@@ -73,7 +106,7 @@
 
         if (SKIP_START_SECONDS && !startSkipped) skipOpening(node);
         if (SKIP_END_SECONDS && !endSkipped) skipEnding(node);
-
+        if (node.currentTime==node.duration) clickSelectedElement();
       }
     });
   }
@@ -84,8 +117,24 @@
       if (mutation.type === 'childList') {
         mutation.addedNodes.forEach(node => {
           if (node.tagName === 'VIDEO') {
+            // console.log("Video is found " + "\n" + node);
+            
             handleVideo(node);
-          } 
+          }
+          else if (node.tagName) {
+            const videos = node.querySelectorAll('video');
+            if (videos.length != 0){
+              videos.forEach(video => {
+                handleVideo(video);
+              });
+            }
+            else if (node.className == 'vsc-controller') {
+              const vscVideo = node.parentElement.querySelectorAll('video');
+              vscVideo.forEach(video => {
+                handleVideo(video);
+              });
+            }
+          }
         });
       }
     }
@@ -97,4 +146,37 @@
   // Start observing changes in the DOM
   observer.observe(document.body, { childList: true, subtree: true });
 
+
+  // Функція для отримання поточного часу відео
+  function getCurrentVideoTime() {
+    const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
+    console.log(video);
+    console.log("Time - " + video.currentTime);
+    if (video) {
+      return video.currentTime;
+    }
+    return null;  // Повернути null, якщо відео не знайдено
+  }
+
+  function getVideoDuration(){
+    const video = document.querySelector('video');  // Знайти елемент <video> на сторінці
+    console.log(video);
+    console.log("Time - " + video.duration);
+    if (video) {
+      return video.duration;
+    }
+    return null;  // Повернути null, якщо відео не знайдено
+  }
+
+  // Додаємо обробник для повідомлень від popup.js
+  chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+    if (request.action === 'getCurrentTime') {
+      const currentTime = getCurrentVideoTime();
+      const videoDuration = getVideoDuration();
+      console.log("Current time " + currentTime);
+      console.log("Video duration " + videoDuration);
+      sendResponse({ currentTime: currentTime, videoDuration: videoDuration });
+    }
+  });
+    
 })();
