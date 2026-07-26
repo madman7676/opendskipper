@@ -7,6 +7,33 @@
   let startSkipped = false;
   let enabled = true;
 
+  // Функція для отримання selectedElement з chrome.storage та натискання елемента
+  function clickSelectedElement() {
+    chrome.storage.sync.get(['selectedElement'], (result) => {
+        const xpath = result.selectedElement;
+
+        if (!xpath) {
+            console.error("XPath для елемента не знайдено у chrome.storage.");
+            return;
+        }
+
+        const element = document.evaluate(
+            xpath,
+            document,
+            null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE,
+            null
+        ).singleNodeValue;
+
+        if (element) {
+            element.click(); // Натискаємо на елемент
+            console.log("Елемент натиснуто за XPath:", xpath);
+        } else {
+            console.error("Елемент не знайдено за вказаним XPath:", xpath);
+        }
+    });
+  }
+
   // Function to apply new settings
   function applySettings(skipStart, skipEnd) {
     SKIP_START_SECONDS = skipStart;
@@ -79,7 +106,7 @@
 
         if (SKIP_START_SECONDS && !startSkipped) skipOpening(node);
         if (SKIP_END_SECONDS && !endSkipped) skipEnding(node);
-
+        if (node.currentTime==node.duration) clickSelectedElement();
       }
     });
   }

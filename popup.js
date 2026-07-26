@@ -1,4 +1,44 @@
 document.addEventListener('DOMContentLoaded', function() {
+  const body = document.body;
+
+  const selectButton = document.getElementById("selectElementButton");
+  const elementSelector = document.getElementById("elementSelector");
+  const elementPath = document.getElementById("elementPath");
+
+  selectButton.addEventListener("click", () => {
+    const isExpanded = elementSelector.style.display === "block";
+    if (isExpanded) {
+      // Згортаємо попап
+      elementSelector.style.display = "none";
+      selectButton.textContent = "↙"; // Повертаємо стрілочку
+      body.style.height = "auto"; // Відновлюємо висоту
+      // Вимикаємо режим вибору
+      chrome.runtime.sendMessage({ action: "toggle-selection", isEnabled: false });
+    } else {
+      // Розширюємо попап
+      elementSelector.style.display = "block";
+      selectButton.textContent = "↗"; // Дзеркальна стрілочка
+      body.style.height = "auto"; // Розширюємо висоту для відображення поля
+      // Вмикаємо режим вибору
+      chrome.runtime.sendMessage({ action: "toggle-selection", isEnabled: true });
+    }
+  });
+
+  // Оновлення поточного шляху до елемента
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.action === "update-path") {
+      elementPath.value = message.selector;
+    }
+  });
+
+  // Отримуємо шлях до елемента і відображаємо його
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.action === "element-selected") {
+      const elementPath = document.getElementById("elementPath");
+      elementPath.value = message.selector; // Вставляємо шлях у поле
+    }
+  });
+
 
   chrome.storage.sync.get({ blacklist: [] }, function(data) {
     const blacklist = data.blacklist;
@@ -15,7 +55,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   const expandButton = document.getElementById('calcButton');
   const calculator = document.getElementById('calculator');
-  const body = document.body;
 
   expandButton.addEventListener('click', () => {
     if (calculator.style.display === 'none' || calculator.style.display === '') {
@@ -99,6 +138,11 @@ document.addEventListener('DOMContentLoaded', function() {
   disableButton.addEventListener('click', function() {
     chrome.storage.sync.get('enabled', function(data) {
       const newStatus = data.enabled === false ? true : false;
+      if (data.enabled === true) {
+        chrome.storage.sync.remove("selectedElement", () => {
+          console.log("Збережений елемент очищено.");
+        });
+      }
       chrome.storage.sync.set({ enabled: newStatus }, function() {
         if (chrome.runtime.lastError) {
           console.error(chrome.runtime.lastError);
