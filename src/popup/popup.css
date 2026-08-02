@@ -1,0 +1,151 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+  width: 310px;
+  margin: 0;
+  background: Canvas;
+  color: CanvasText;
+}
+
+main {
+  padding: 16px;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.page-url {
+  min-height: 32px;
+  margin: 0 0 16px;
+  color: GrayText;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+label {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.toggle input {
+  width: auto;
+  margin: 0;
+}
+
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr 92px;
+  gap: 8px;
+}
+
+input,
+button {
+  box-sizing: border-box;
+  min-height: 36px;
+  border: 1px solid ButtonBorder;
+  border-radius: 6px;
+  font: inherit;
+}
+
+input[type="number"] {
+  width: 100%;
+  padding: 6px 8px;
+  background: Field;
+  color: FieldText;
+}
+
+button {
+  cursor: pointer;
+  padding: 7px 10px;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.primary {
+  width: 100%;
+  margin-top: 18px;
+  border-color: #1769aa;
+  background: #1976d2;
+  color: white;
+}
+
+.secondary {
+  background: ButtonFace;
+  color: ButtonText;
+  font-size: 12px;
+}
+
+details {
+  margin-top: 16px;
+  font-size: 13px;
+}
+
+summary {
+  cursor: pointer;
+  color: GrayText;
+}
+
+.time-grid {
+  display: grid;
+  grid-template-columns: 64px 1fr 1fr;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.time-grid input {
+  min-width: 0;
+}
+
+.calculate {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.calculation-result {
+  min-height: 16px;
+  margin: 6px 0 0;
+  color: GrayText;
+}
+
+.transfer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.compact {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+#status {
+  box-sizing: border-box;
+  height: 32px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  overflow-y: auto;
+}
+
+#status.error {
+  color: #c62828;
+}

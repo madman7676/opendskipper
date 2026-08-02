@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpEndSkipper</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <h1>OpEndSkipper</h1>
+      <p id="pageUrl" class="page-url">Завантаження URL…</p>
+
+      <label class="toggle">
+        <input id="enabled" type="checkbox">
+        <span>Увімкнено для цієї сторінки</span>
+      </label>
+
+      <label for="skipStart">Пропустити на початку, с</label>
+      <div class="input-row">
+        <input id="skipStart" type="number" min="0" step="1" value="0">
+        <button id="useCurrentStart" class="secondary" type="button" title="Взяти поточний час відео">Поточний</button>
+      </div>
+
+      <label for="skipEnd">Пропустити наприкінці, с</label>
+      <div class="input-row">
+        <input id="skipEnd" type="number" min="0" step="1" value="0">
+        <button id="useCurrentEnd" class="secondary" type="button" title="Взяти час до завершення відео">Залишок</button>
+      </div>
+
+      <details>
+        <summary>Калькулятор тривалості</summary>
+        <div class="time-grid">
+          <span>Початок</span>
+          <input id="calcStartMinutes" type="number" min="0" step="1" placeholder="хв" aria-label="Хвилини початку">
+          <input id="calcStartSeconds" type="number" min="0" max="59" step="1" placeholder="с" aria-label="Секунди початку">
+          <span>Кінець</span>
+          <input id="calcEndMinutes" type="number" min="0" step="1" placeholder="хв" aria-label="Хвилини кінця">
+          <input id="calcEndSeconds" type="number" min="0" max="59" step="1" placeholder="с" aria-label="Секунди кінця">
+        </div>
+        <button id="calculateDuration" class="secondary calculate" type="button">Порахувати</button>
+        <p id="calculationResult" class="calculation-result"></p>
+      </details>
+
+      <button id="save" class="primary" type="button">Зберегти для цього URL</button>
+
+      <div class="transfer-actions" aria-label="Перенесення часових налаштувань">
+        <button
+          id="copySkipSettings"
+          class="secondary compact"
+          type="button"
+          title="Копіювати часові налаштування"
+          aria-label="Копіювати часові налаштування"
+        >Копіювати</button>
+        <button
+          id="pasteSkipSettings"
+          class="secondary compact"
+          type="button"
+          title="Вставити часові налаштування"
+          aria-label="Вставити часові налаштування"
+          disabled
+        >Вставити</button>
+      </div>
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script src="../shared/constants.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
