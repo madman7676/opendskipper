@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OpEndSkipper",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "minimum_chrome_version": "119",
   "description": "Автоматично пропускає початок і кінець HTML5-відео за окремими налаштуваннями для кожного URL.",
   "permissions": [

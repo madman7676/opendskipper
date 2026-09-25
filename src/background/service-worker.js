@@ -1,30 +1,48 @@
-importScripts("../shared/constants.js", "../shared/profiles.js");
+importScripts(
+  "../shared/constants.js",
+  "../shared/url-fixers.js",
+  "../shared/profiles.js"
+);
 
 const {
   MESSAGE,
   PROFILE_KEY_PREFIX,
-  Profiles
+  Profiles,
+  URL_FIXER_SETTINGS_KEY,
+  UrlFixers
 } = globalThis.OpenDSkipper;
 
 const videoStateCollections = new Map();
 
-async function getTabContext(tabId) {
+async function getTabContext(tabId, includeFixerSettings = false) {
   if (!Number.isInteger(tabId)) {
     throw new Error("Некоректний ідентифікатор вкладки.");
   }
 
-  const tab = await chrome.tabs.get(tabId);
-  if (!tab.url) {
+  const topFrame = await chrome.webNavigation.getFrame({
+    tabId,
+    frameId: 0
+  });
+  if (!topFrame || !topFrame.url) {
     throw new Error("Не вдалося визначити URL активної вкладки.");
   }
 
-  const loaded = await Profiles.loadProfile(tab.url);
-  return {
-    tabId: tab.id,
-    topUrl: tab.url,
+  const resolution = await UrlFixers.resolveProfileKey(topFrame.url);
+  const loaded = await Profiles.loadProfile(resolution.profileKey);
+  const context = {
+    tabId,
+    topUrl: topFrame.url,
+    profileKey: resolution.profileKey,
+    urlFixerWarning: resolution.warning,
     exists: loaded.exists,
     profile: loaded.profile
   };
+
+  if (includeFixerSettings) {
+    context.urlFixerSettings = resolution.settings;
+  }
+
+  return context;
 }
 
 async function getSenderContext(sender) {
@@ -34,11 +52,13 @@ async function getSenderContext(sender) {
   return getTabContext(sender.tab.id);
 }
 
-async function broadcastProfile(tabId, topUrl, profile) {
+async function broadcastProfile(tabId, topUrl, profileKey, profile, urlFixerWarning = null) {
   try {
     await chrome.tabs.sendMessage(tabId, {
       type: MESSAGE.PROFILE_UPDATED,
       topUrl,
+      profileKey,
+      urlFixerWarning,
       profile
     });
   } catch (error) {
@@ -49,9 +69,15 @@ async function broadcastProfile(tabId, topUrl, profile) {
   }
 }
 
-function refreshTabProfile(tabId, topUrl) {
-  Profiles.loadProfile(topUrl)
-    .then(({ profile }) => broadcastProfile(tabId, topUrl, profile))
+function refreshTabProfile(tabId) {
+  getTabContext(tabId)
+    .then((context) => broadcastProfile(
+      context.tabId,
+      context.topUrl,
+      context.profileKey,
+      context.profile,
+      context.urlFixerWarning
+    ))
     .catch((error) => {
       console.warn("OpEndSkipper: не вдалося оновити профіль після навігації.", error);
     });
@@ -101,7 +127,7 @@ async function handleMessage(message, sender) {
       return getSenderContext(sender);
 
     case MESSAGE.GET_POPUP_CONTEXT:
-      return getTabContext(message.tabId);
+      return getTabContext(message.tabId, true);
 
     case MESSAGE.GET_COPIED_SKIP_SETTINGS:
       return {
@@ -119,13 +145,37 @@ async function handleMessage(message, sender) {
         throw new Error("URL вкладки змінився. Відкрийте popup ще раз.");
       }
 
-      const profile = await Profiles.saveProfile(context.topUrl, message.profile);
-      await broadcastProfile(context.tabId, context.topUrl, profile);
+      const profile = await Profiles.saveProfile(context.profileKey, message.profile);
+      await broadcastProfile(
+        context.tabId,
+        context.topUrl,
+        context.profileKey,
+        profile,
+        context.urlFixerWarning
+      );
       return {
         ...context,
         exists: true,
         profile
       };
+    }
+
+    case MESSAGE.SAVE_URL_FIXER_SETTINGS: {
+      const current = await getTabContext(message.tabId);
+      if (message.expectedUrl && message.expectedUrl !== current.topUrl) {
+        throw new Error("URL вкладки змінився. Відкрийте popup ще раз.");
+      }
+
+      await UrlFixers.saveUrlFixerRules(message.rules);
+      const context = await getTabContext(message.tabId, true);
+      await broadcastProfile(
+        context.tabId,
+        context.topUrl,
+        context.profileKey,
+        context.profile,
+        context.urlFixerWarning
+      );
+      return context;
     }
 
     case MESSAGE.PASTE_SKIP_SETTINGS: {
@@ -139,11 +189,17 @@ async function handleMessage(message, sender) {
         throw new Error("Немає коректних скопійованих налаштувань.");
       }
 
-      const profile = await Profiles.saveProfile(context.topUrl, {
+      const profile = await Profiles.saveProfile(context.profileKey, {
         ...context.profile,
         ...copiedSettings
       });
-      await broadcastProfile(context.tabId, context.topUrl, profile);
+      await broadcastProfile(
+        context.tabId,
+        context.topUrl,
+        context.profileKey,
+        profile,
+        context.urlFixerWarning
+      );
       return {
         ...context,
         exists: true,
@@ -198,12 +254,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     return;
   }
 
-  refreshTabProfile(tabId, changeInfo.url);
+  refreshTabProfile(tabId);
 });
 
 function handleSameDocumentNavigation(details) {
   if (details.frameId === 0 && details.url) {
-    refreshTabProfile(details.tabId, details.url);
+    refreshTabProfile(details.tabId);
   }
 }
 
@@ -215,27 +271,43 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
-  const updatedProfiles = Object.entries(changes)
+  const urlFixersChanged = Boolean(changes[URL_FIXER_SETTINGS_KEY]);
+  const updatedProfileKeys = Object.entries(changes)
     .filter(([key, change]) =>
       key.startsWith(PROFILE_KEY_PREFIX) &&
       change.newValue &&
       typeof change.newValue.url === "string"
     )
-    .map(([, change]) => ({
-      url: change.newValue.url,
-      profile: Profiles.sanitizeProfile(change.newValue.profile)
-    }));
+    .map(([, change]) => change.newValue.url);
 
-  if (updatedProfiles.length === 0) {
+  if (!urlFixersChanged && updatedProfileKeys.length === 0) {
     return;
   }
 
   chrome.tabs.query({}).then((tabs) => {
     for (const tab of tabs) {
-      const updated = updatedProfiles.find((item) => item.url === tab.url);
-      if (updated && Number.isInteger(tab.id)) {
-        broadcastProfile(tab.id, updated.url, updated.profile);
+      if (!Number.isInteger(tab.id)) {
+        continue;
       }
+
+      if (urlFixersChanged) {
+        refreshTabProfile(tab.id);
+        continue;
+      }
+
+      getTabContext(tab.id).then((context) => {
+        if (updatedProfileKeys.includes(context.profileKey)) {
+          broadcastProfile(
+            context.tabId,
+            context.topUrl,
+            context.profileKey,
+            context.profile,
+            context.urlFixerWarning
+          );
+        }
+      }).catch((error) => {
+        console.warn("OpEndSkipper: не вдалося оновити sync-профіль вкладки.", error);
+      });
     }
   }).catch((error) => {
     console.warn("OpEndSkipper: не вдалося поширити sync-оновлення.", error);
@@ -243,8 +315,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 function removeLegacySettings() {
-  Profiles.removeLegacySettings().catch((error) => {
-    console.warn("OpEndSkipper: не вдалося видалити старі глобальні налаштування.", error);
+  Promise.all([
+    Profiles.removeLegacySettings(),
+    UrlFixers.loadUrlFixerSettings()
+  ]).catch((error) => {
+    console.warn("OpEndSkipper: не вдалося ініціалізувати глобальні налаштування.", error);
   });
 }
 

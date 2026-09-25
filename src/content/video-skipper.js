@@ -7,6 +7,7 @@
   } = globalThis.OpenDSkipper;
 
   let currentTopUrl = null;
+  let currentProfileKey = null;
   let profile = { ...DEFAULT_PROFILE };
   const attachedVideos = new WeakSet();
   const videoStates = new WeakMap();
@@ -27,14 +28,34 @@
     document.querySelectorAll("video").forEach(resetVideoState);
   }
 
-  function applyProfile(nextTopUrl, nextProfile) {
-    currentTopUrl = nextTopUrl;
-    profile = {
+  function handlePlayingVideos() {
+    document.querySelectorAll("video").forEach((video) => {
+      if (!video.paused && !video.ended) {
+        handlePlayback(video);
+      }
+    });
+  }
+
+  function applyProfile(nextTopUrl, nextProfileKey, nextProfile) {
+    const cleanProfile = {
       enabled: nextProfile && nextProfile.enabled === true,
       skipStart: Math.max(0, Number(nextProfile && nextProfile.skipStart) || 0),
       skipEnd: Math.max(0, Number(nextProfile && nextProfile.skipEnd) || 0)
     };
-    resetAllVideoStates();
+    const shouldResetVideos =
+      currentProfileKey !== nextProfileKey ||
+      cleanProfile.enabled !== profile.enabled ||
+      cleanProfile.skipStart !== profile.skipStart ||
+      cleanProfile.skipEnd !== profile.skipEnd;
+
+    currentTopUrl = nextTopUrl;
+    currentProfileKey = nextProfileKey;
+    profile = cleanProfile;
+
+    if (shouldResetVideos) {
+      resetAllVideoStates();
+      handlePlayingVideos();
+    }
   }
 
   async function requestProfile() {
@@ -49,13 +70,18 @@
 
       if (
         response.data.topUrl !== currentTopUrl ||
+        response.data.profileKey !== currentProfileKey ||
         JSON.stringify(response.data.profile) !== JSON.stringify(profile)
       ) {
-        applyProfile(response.data.topUrl, response.data.profile);
+        applyProfile(
+          response.data.topUrl,
+          response.data.profileKey,
+          response.data.profile
+        );
       }
     } catch (error) {
       console.warn("OpEndSkipper: не вдалося отримати профіль сторінки.", error);
-      applyProfile(null, DEFAULT_PROFILE);
+      applyProfile(null, null, DEFAULT_PROFILE);
     }
   }
 
@@ -138,6 +164,10 @@
         state.playbackEnded = true;
       }
     });
+
+    if (!video.paused && !video.ended) {
+      handlePlayback(video);
+    }
   }
 
   function scanNode(node) {
@@ -177,7 +207,7 @@
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message && message.type === MESSAGE.PROFILE_UPDATED) {
-      applyProfile(message.topUrl, message.profile);
+      applyProfile(message.topUrl, message.profileKey, message.profile);
       return;
     }
 

@@ -61,10 +61,33 @@
           disabled
         >Вставити</button>
       </div>
+
+      <details id="urlFixerSection" class="fixer-section">
+        <summary>URL-фіксери</summary>
+        <fieldset id="urlFixerControls">
+          <div class="fixer-toolbar">
+            <button id="enableAllFixers" class="secondary compact" type="button">Увімкнути всі</button>
+            <button id="disableAllFixers" class="secondary compact" type="button">Вимкнути всі</button>
+          </div>
+
+          <ol id="urlFixerList" class="fixer-list"></ol>
+          <div id="addFixerForm"></div>
+          <button id="addUrlFixer" class="secondary add-fixer" type="button">Додати правило</button>
+        </fieldset>
+
+        <div class="fixer-preview">
+          <span>Поточний URL:</span>
+          <code id="previewOriginalUrl"></code>
+          <span>Ключ профілю:</span>
+          <code id="previewProfileKey"></code>
+          <p id="urlFixerWarning" class="fixer-warning" role="status"></p>
+        </div>
+      </details>
       <p id="status" role="status" aria-live="polite"></p>
     </main>
 
     <script src="../shared/constants.js"></script>
+    <script src="../shared/url-fixers.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -17,6 +17,7 @@
     GET_COPIED_SKIP_SETTINGS: "skip-buffer:get",
     COPY_SKIP_SETTINGS: "skip-buffer:copy",
     PASTE_SKIP_SETTINGS: "skip-buffer:paste-for-tab",
+    SAVE_URL_FIXER_SETTINGS: "url-fixers:save-for-tab",
     COLLECT_VIDEO_STATE: "video:collect-state",
     REQUEST_VIDEO_STATE: "video:request-state",
     REPORT_VIDEO_STATE: "video:report-state"
@@ -24,6 +25,8 @@
 
   namespace.PROFILE_KEY_PREFIX = "profile:v1:";
   namespace.COPIED_SKIP_SETTINGS_KEY = "copiedSkipSettings";
+  namespace.URL_FIXER_SETTINGS_KEY = "urlFixerSettings";
+  namespace.URL_FIXER_SCHEMA_VERSION = 1;
   namespace.LEGACY_STORAGE_KEYS = Object.freeze([
     "skipStartSeconds",
     "skipEndSeconds",
