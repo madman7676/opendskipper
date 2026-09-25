@@ -8,51 +8,129 @@
   </head>
   <body>
     <main id="popupContent" inert aria-busy="true">
-      <h1>OpEndSkipper</h1>
-      <p id="pageUrl" class="page-url">Завантаження URL…</p>
+      <header class="popup-header">
+        <h1>OpEndSkipper</h1>
+        <label class="toggle global-enabled">
+          <span>Увімкнено</span>
+          <input id="enabled" type="checkbox">
+        </label>
+      </header>
 
-      <label class="toggle">
-        <input id="enabled" type="checkbox">
-        <span>Увімкнено для цієї сторінки</span>
-      </label>
-
-      <label for="skipStart">Пропустити на початку, с</label>
-      <div class="input-row">
-        <div class="time-value">
-          <input id="skipStart" type="time" step="1" value="00:00:00">
-          <span id="skipStartFraction" class="time-fraction" aria-label="Дробова частина секунди">.000</span>
+      <div class="service-area">
+        <div class="profile-context">
+          <span class="service-label">Ключ профілю</span>
+          <p id="pageUrl" class="page-url">Завантаження URL…</p>
         </div>
-        <button id="useCurrentStart" class="secondary" type="button" title="Взяти поточний час відео">Поточний</button>
+        <label class="mode-switch">
+          <span class="service-label">Advanced mode</span>
+          <span class="mode-control">
+            <input id="modeSwitch" type="checkbox" role="switch" aria-label="Advanced mode">
+            <span class="mode-track" aria-hidden="true"><span class="mode-thumb"></span></span>
+          </span>
+        </label>
       </div>
 
-      <label for="skipEnd">Пропустити наприкінці, с</label>
-      <div class="input-row">
-        <div class="time-value">
-          <input id="skipEnd" type="time" step="1" value="00:00:00">
-          <span id="skipEndFraction" class="time-fraction" aria-label="Дробова частина секунди">.000</span>
+      <section id="mainSettings" class="main-settings" aria-label="Налаштування пропусків">
+        <div id="mainSettingsContent">
+          <section id="easySection" aria-label="Easy Mode">
+            <label for="skipStart">Пропустити на початку, с</label>
+            <div class="input-row">
+              <div class="time-value">
+                <input id="skipStart" type="time" step="1" value="00:00:00">
+                <span id="skipStartFraction" class="time-fraction" aria-label="Дробова частина секунди">.000</span>
+              </div>
+              <button id="useCurrentStart" class="secondary" type="button" title="Взяти поточний час відео">Поточний</button>
+            </div>
+
+            <label for="skipEnd">Пропустити наприкінці, с</label>
+            <div class="input-row">
+              <div class="time-value">
+                <input id="skipEnd" type="time" step="1" value="00:00:00">
+                <span id="skipEndFraction" class="time-fraction" aria-label="Дробова частина секунди">.000</span>
+              </div>
+              <button id="useCurrentEnd" class="secondary" type="button" title="Взяти час до завершення відео">Залишок</button>
+            </div>
+
+            <button id="save" class="semantic-button semantic-save-set" type="button">Зберегти для цього URL</button>
+
+            <div class="transfer-actions" aria-label="Перенесення часових налаштувань">
+              <button
+                id="copySkipSettings"
+                class="secondary compact"
+                type="button"
+                title="Копіювати часові налаштування"
+                aria-label="Копіювати часові налаштування"
+              >Копіювати</button>
+              <button
+                id="pasteSkipSettings"
+                class="secondary compact"
+                type="button"
+                title="Вставити часові налаштування"
+                aria-label="Вставити часові налаштування"
+                disabled
+              >Вставити</button>
+            </div>
+          </section>
+
+          <section id="advancedSection" aria-label="Advanced Mode" hidden>
+            <div class="episode-row">
+              <label for="advancedEpisode">Серія</label>
+              <input id="advancedEpisode" type="text" maxlength="80" value="1">
+              <button id="selectAdvancedEpisode" type="button" class="secondary compact">Відкрити</button>
+            </div>
+            <div class="saved-ranges">
+              <p class="advanced-heading">Діапазони поточної серії</p>
+              <ol id="advancedRangeList" class="advanced-range-list"></ol>
+              <button id="addAdvancedRange" type="button" class="secondary add-fixer">+ Додати діапазон</button>
+            </div>
+
+            <div id="advancedEditor" class="advanced-editor" hidden>
+              <p id="advancedEditorTitle" class="advanced-heading">Новий діапазон</p>
+              <label for="advancedStart">Початок</label>
+              <div class="input-row">
+                <div class="time-value">
+                  <input id="advancedStart" type="time" step="1" value="00:00:00">
+                  <span id="advancedStartFraction" class="time-fraction">.000</span>
+                </div>
+                <button id="advancedCurrentStart" type="button" class="secondary compact">Поточний</button>
+              </div>
+              <label for="advancedEnd">Кінець</label>
+              <div class="input-row">
+                <div class="time-value">
+                  <input id="advancedEnd" type="time" step="1" value="00:00:00">
+                  <span id="advancedEndFraction" class="time-fraction">.000</span>
+                </div>
+                <button id="advancedCurrentEnd" type="button" class="secondary compact">Поточний</button>
+              </div>
+              <details id="advancedTemplates" class="templates-section" open>
+                <summary id="advancedTemplatesSummary"><span class="templates-title">Шаблони</span></summary>
+                <div class="quick-actions" aria-label="Швидке заповнення діапазону">
+                  <button id="quickZeroCurrent" type="button" class="secondary compact">0 → поточний</button>
+                  <button id="quickZeroNinety" type="button" class="secondary compact">0 → 1:30</button>
+                  <button id="quickCurrentNinety" type="button" class="secondary compact">поточний → +1:30</button>
+                  <button id="quickCurrentEnd" type="button" class="secondary compact">поточний → кінець</button>
+                </div>
+              </details>
+              <div class="transfer-actions draft-actions">
+                <button id="cancelAdvancedEdit" type="button" class="semantic-button semantic-cancel-draft compact">Скасувати</button>
+                <button id="applyAdvancedEdit" type="button" class="semantic-button semantic-apply-draft compact">Зберегти у чернетку</button>
+              </div>
+            </div>
+
+            <div class="transfer-actions">
+              <button id="copyAdvancedRanges" type="button" class="secondary compact">Копіювати набір</button>
+              <button id="pasteAdvancedRanges" type="button" class="secondary compact">Вставити набір</button>
+            </div>
+            <div class="transfer-actions set-actions">
+              <button id="cancelAdvancedRanges" type="button" class="semantic-button semantic-cancel-set compact">Скасувати набір</button>
+              <button id="saveAdvancedRanges" type="button" class="semantic-button semantic-save-set compact">Зберегти набір</button>
+            </div>
+          </section>
         </div>
-        <button id="useCurrentEnd" class="secondary" type="button" title="Взяти час до завершення відео">Залишок</button>
-      </div>
-
-      <button id="save" class="primary" type="button">Зберегти для цього URL</button>
-
-      <div class="transfer-actions" aria-label="Перенесення часових налаштувань">
-        <button
-          id="copySkipSettings"
-          class="secondary compact"
-          type="button"
-          title="Копіювати часові налаштування"
-          aria-label="Копіювати часові налаштування"
-        >Копіювати</button>
-        <button
-          id="pasteSkipSettings"
-          class="secondary compact"
-          type="button"
-          title="Вставити часові налаштування"
-          aria-label="Вставити часові налаштування"
-          disabled
-        >Вставити</button>
-      </div>
+        <div id="settingsOverlay" class="settings-overlay" hidden role="status" aria-live="polite">
+          <span id="settingsOverlayMessage">Відео на сторінці не знайдено</span>
+        </div>
+      </section>
 
       <details id="urlFixerSection" class="fixer-section">
         <summary>URL-фіксери</summary>
@@ -72,11 +150,16 @@
           <code id="previewOriginalUrl"></code>
           <span>Ключ профілю:</span>
           <code id="previewProfileKey"></code>
-          <p id="urlFixerWarning" class="fixer-warning" role="status"></p>
         </div>
       </details>
-      <p id="status" role="status" aria-live="polite"></p>
     </main>
+
+    <div id="toastLayer" class="toast-layer">
+      <div id="toast" class="toast" hidden role="status" aria-live="polite">
+        <span id="toastMessage" class="toast-message"></span>
+        <button id="toastClose" class="toast-close" type="button" aria-label="Закрити повідомлення">×</button>
+      </div>
+    </div>
 
     <div id="popupOverlay" class="popup-overlay" role="status" aria-live="polite">
       <div id="popupSpinner" class="popup-spinner" aria-hidden="true"></div>
@@ -85,7 +168,10 @@
 
     <script src="../shared/constants.js"></script>
     <script src="../shared/time.js"></script>
+    <script src="../shared/advanced.js"></script>
     <script src="../shared/url-fixers.js"></script>
+    <script src="time-field.js"></script>
+    <script src="advanced-ui.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

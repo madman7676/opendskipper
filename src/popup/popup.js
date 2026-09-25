@@ -5,6 +5,8 @@
     DEFAULT_PROFILE,
     MESSAGE,
     Time,
+    TimeField,
+    AdvancedUi,
     UrlFixers
   } = globalThis.OpenDSkipper;
 
@@ -14,6 +16,12 @@
     popupSpinner: document.getElementById("popupSpinner"),
     popupOverlayMessage: document.getElementById("popupOverlayMessage"),
     pageUrl: document.getElementById("pageUrl"),
+    mainSettingsContent: document.getElementById("mainSettingsContent"),
+    settingsOverlay: document.getElementById("settingsOverlay"),
+    settingsOverlayMessage: document.getElementById("settingsOverlayMessage"),
+    modeSwitch: document.getElementById("modeSwitch"),
+    easySection: document.getElementById("easySection"),
+    advancedSection: document.getElementById("advancedSection"),
     enabled: document.getElementById("enabled"),
     skipStart: document.getElementById("skipStart"),
     skipStartFraction: document.getElementById("skipStartFraction"),
@@ -24,7 +32,9 @@
     copySkipSettings: document.getElementById("copySkipSettings"),
     pasteSkipSettings: document.getElementById("pasteSkipSettings"),
     save: document.getElementById("save"),
-    status: document.getElementById("status"),
+    toast: document.getElementById("toast"),
+    toastMessage: document.getElementById("toastMessage"),
+    toastClose: document.getElementById("toastClose"),
     urlFixerControls: document.getElementById("urlFixerControls"),
     enableAllFixers: document.getElementById("enableAllFixers"),
     disableAllFixers: document.getElementById("disableAllFixers"),
@@ -32,22 +42,31 @@
     addFixerForm: document.getElementById("addFixerForm"),
     addUrlFixer: document.getElementById("addUrlFixer"),
     previewOriginalUrl: document.getElementById("previewOriginalUrl"),
-    previewProfileKey: document.getElementById("previewProfileKey"),
-    urlFixerWarning: document.getElementById("urlFixerWarning")
+    previewProfileKey: document.getElementById("previewProfileKey")
   };
 
   let tabId = null;
   let topUrl = null;
   let profileKey = null;
   let urlFixerWarning = null;
+  let shownFixerWarning = null;
   let urlFixerSettings = { schemaVersion: 1, rules: [] };
   let initializing = true;
   let contextReady = false;
   let busy = false;
+  let videoAvailability = "checking";
+  let videoCheckInFlight = false;
+  let videoPollTimer = null;
   let hasCopiedSkipSettings = false;
   let editorState = null;
   let pendingDeleteId = null;
-  const timeDraft = { skipStart: 0, skipEnd: 0 };
+  let currentProfile = { ...DEFAULT_PROFILE };
+  let toastTimer = null;
+  const easyTimeFields = {
+    skipStart: TimeField.create(elements.skipStart, elements.skipStartFraction),
+    skipEnd: TimeField.create(elements.skipEnd, elements.skipEndFraction)
+  };
+  let currentMode = "easy";
 
   const operationLabels = Object.freeze({
     [UrlFixers.OPERATION.TRUNCATE_AFTER]: "Відкинути все після",
@@ -62,10 +81,31 @@
     [UrlFixers.POSITION.ANYWHERE]: "усюди"
   });
 
-  function setStatus(text, isError = false) {
-    elements.status.textContent = text;
-    elements.status.classList.toggle("error", isError);
+  function dismissToast() {
+    if (toastTimer !== null) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
+    elements.toast.hidden = true;
   }
+
+  function showToast(message, type = "info") {
+    dismissToast();
+    if (!message) return;
+    const safeType = ["success", "error", "info"].includes(type) ? type : "info";
+    elements.toastMessage.textContent = message;
+    elements.toast.setAttribute("data-type", safeType);
+    elements.toast.setAttribute("role", safeType === "error" ? "alert" : "status");
+    elements.toast.setAttribute("aria-live", safeType === "error" ? "assertive" : "polite");
+    elements.toast.hidden = false;
+    toastTimer = setTimeout(dismissToast, 7000);
+  }
+
+  function setStatus(text, isError = false, type = "success") {
+    showToast(text, isError ? "error" : type);
+  }
+
+  elements.toastClose.addEventListener("click", dismissToast);
 
   function setPopupState(state, errorMessage = "") {
     const ready = state === "ready";
@@ -94,14 +134,21 @@
   function setBusy(nextBusy) {
     busy = nextBusy;
     const unavailable = busy || !contextReady;
+    const settingsUnavailable = unavailable || videoAvailability !== "available";
+    elements.modeSwitch.disabled = unavailable;
+    elements.mainSettingsContent.inert = settingsUnavailable;
+    elements.settingsOverlay.hidden = !contextReady || videoAvailability === "available";
+    elements.settingsOverlayMessage.textContent = videoAvailability === "missing"
+      ? "Відео на сторінці не знайдено" : "Перевірка відео…";
+    elements.advancedSection.inert = settingsUnavailable;
     elements.enabled.disabled = unavailable;
-    elements.skipStart.disabled = unavailable;
-    elements.skipEnd.disabled = unavailable;
-    elements.useCurrentStart.disabled = unavailable;
-    elements.useCurrentEnd.disabled = unavailable;
-    elements.save.disabled = unavailable;
-    elements.copySkipSettings.disabled = busy || !contextReady;
-    elements.pasteSkipSettings.disabled = busy || !contextReady || !hasCopiedSkipSettings;
+    elements.skipStart.disabled = settingsUnavailable;
+    elements.skipEnd.disabled = settingsUnavailable;
+    elements.useCurrentStart.disabled = settingsUnavailable;
+    elements.useCurrentEnd.disabled = settingsUnavailable;
+    elements.save.disabled = settingsUnavailable;
+    elements.copySkipSettings.disabled = settingsUnavailable;
+    elements.pasteSkipSettings.disabled = settingsUnavailable || !hasCopiedSkipSettings;
     elements.pasteSkipSettings.title = hasCopiedSkipSettings
       ? "Вставити часові налаштування"
       : "Спочатку скопіюйте часові налаштування";
@@ -112,25 +159,13 @@
   function readProfile() {
     return {
       enabled: elements.enabled.checked,
-      skipStart: timeDraft.skipStart,
-      skipEnd: timeDraft.skipEnd
+      skipStart: easyTimeFields.skipStart.get() ?? 0,
+      skipEnd: easyTimeFields.skipEnd.get() ?? 0
     };
   }
 
   function renderTimeField(key, seconds) {
-    const safeSeconds = Time.isFiniteMediaTime(seconds) && seconds >= 0 ? seconds : 0;
-    timeDraft[key] = safeSeconds;
-    elements[key].value = Time.formatTimeInput(safeSeconds);
-    const fraction = Math.min(0.999, Time.getFractionalSeconds(safeSeconds));
-    elements[`${key}Fraction`].textContent = `.${String(Math.floor((fraction + 1e-9) * 1000)).padStart(3, "0")}`;
-    elements[key].title = elements[key].value || `${safeSeconds} с (понад 24 години)`;
-  }
-
-  function acceptTimeEdit(key) {
-    const parsed = Time.parseTimeInput(elements[key].value);
-    timeDraft[key] = parsed === null ? 0 : parsed;
-    elements[`${key}Fraction`].textContent = ".000";
-    elements[key].title = elements[key].value;
+    easyTimeFields[key].set(seconds);
   }
 
   function renderProfile(profile) {
@@ -140,13 +175,19 @@
     renderTimeField("skipEnd", safe.skipEnd);
   }
 
-  function applyContext(context, includeFixerSettings = false) {
+  function applyContext(context, includeFixerSettings = false, resetAdvancedDraft = false) {
     topUrl = context.topUrl;
     profileKey = context.profileKey;
     urlFixerWarning = context.urlFixerWarning || null;
-    elements.pageUrl.textContent = topUrl;
-    elements.pageUrl.title = topUrl;
+    elements.pageUrl.textContent = profileKey;
+    elements.pageUrl.title = profileKey;
+    currentProfile = { ...context.profile };
     renderProfile(context.profile);
+    currentMode = context.advanced && context.advanced.mode === "advanced" ? "advanced" : "easy";
+    elements.easySection.hidden = currentMode !== "easy";
+    elements.advancedSection.hidden = currentMode !== "advanced";
+    elements.modeSwitch.checked = currentMode === "advanced";
+    advancedUi.render(context, resetAdvancedDraft);
 
     if (includeFixerSettings && context.urlFixerSettings) {
       urlFixerSettings = context.urlFixerSettings;
@@ -222,7 +263,10 @@
     elements.previewOriginalUrl.title = topUrl || "";
     elements.previewProfileKey.textContent = shownKey || "—";
     elements.previewProfileKey.title = shownKey || "";
-    elements.urlFixerWarning.textContent = warning || "";
+    if (warning !== shownFixerWarning) {
+      shownFixerWarning = warning;
+      if (warning) showToast(warning, "error");
+    }
   }
 
   function createSelect(options, selectedValue) {
@@ -242,14 +286,10 @@
     const label = document.createElement("label");
     label.textContent = labelText;
     label.append(control);
-    const error = document.createElement("p");
-    error.className = "field-error";
-    error.textContent = editorState.errors[errorKey] || "";
     control.addEventListener("input", () => {
       editorState.errors[errorKey] = "";
-      error.textContent = "";
     });
-    wrapper.append(label, error);
+    wrapper.append(label);
     return wrapper;
   }
 
@@ -475,6 +515,7 @@
   async function saveEditor() {
     if (!validateEditor()) {
       renderFixerUi();
+      showToast(Object.values(editorState.errors).join(" "), "error");
       return;
     }
 
@@ -493,6 +534,7 @@
       if (!rule) {
         editorState.errors.value = "Правило містить некоректні дані.";
         renderFixerUi();
+        showToast(editorState.errors.value, "error");
         return;
       }
       nextRules = [...urlFixerSettings.rules, rule];
@@ -507,6 +549,7 @@
       if (!rule) {
         editorState.errors.value = "Правило містить некоректні дані.";
         renderFixerUi();
+        showToast(editorState.errors.value, "error");
         return;
       }
       nextRules = urlFixerSettings.rules.map((current) =>
@@ -603,8 +646,29 @@
     );
   }
 
+  async function refreshVideoAvailability() {
+    if (!contextReady || tabId === null || videoCheckInFlight) return;
+    videoCheckInFlight = true;
+    const checkedTabId = tabId;
+    try {
+      const result = await sendMessage({
+        type: MESSAGE.COLLECT_VIDEO_STATE,
+        tabId: checkedTabId
+      });
+      if (tabId === checkedTabId) {
+        videoAvailability = result.video ? "available" : "missing";
+      }
+    } catch {
+      if (tabId === checkedTabId) videoAvailability = "missing";
+    } finally {
+      videoCheckInFlight = false;
+      setBusy(busy);
+    }
+  }
+
   async function loadContext() {
     setPopupState("loading");
+    videoAvailability = "checking";
     setBusy(true);
     setStatus("");
 
@@ -635,18 +699,21 @@
         type: MESSAGE.GET_POPUP_CONTEXT,
         tabId
       });
-      applyContext(context, true);
+      applyContext(context, true, true);
       await refreshCopiedSkipSettingsState();
       contextReady = true;
       setPopupState("ready");
-      setStatus(context.exists ? "Профіль URL завантажено." : "Новий ключ: стандартно вимкнено.");
+      setStatus(context.exists ? "Профіль URL завантажено." : "Новий ключ: стандартно вимкнено.", false, "info");
+      void refreshVideoAvailability();
+      if (videoPollTimer === null) {
+        videoPollTimer = setInterval(() => { void refreshVideoAvailability(); }, 2000);
+      }
     } catch (error) {
       contextReady = false;
       tabId = null;
       topUrl = null;
       renderProfile(DEFAULT_PROFILE);
       elements.pageUrl.textContent = "URL недоступний";
-      setStatus(error.message, true);
       setPopupState("error", error.message);
     } finally {
       initializing = false;
@@ -655,7 +722,7 @@
     }
   }
 
-  async function saveProfile(successMessage = "Налаштування збережено.") {
+  async function saveProfile(successMessage = "Налаштування збережено.", profileOverride = null) {
     if (initializing || tabId === null || topUrl === null) {
       return;
     }
@@ -666,11 +733,14 @@
         type: MESSAGE.SAVE_PROFILE,
         tabId,
         expectedUrl: topUrl,
-        profile: readProfile()
+        profile: profileOverride || readProfile()
       });
       applyContext(context);
       setStatus(successMessage);
     } catch (error) {
+      if (profileOverride) {
+        elements.enabled.checked = currentProfile.enabled === true;
+      }
       setStatus(error.message, true);
     } finally {
       setBusy(false);
@@ -680,30 +750,71 @@
 
   async function getVideoState() {
     setBusy(true);
-    setStatus("Шукаю активне відео…");
+    setStatus("Шукаю активне відео…", false, "info");
     try {
       const result = await sendMessage({
         type: MESSAGE.COLLECT_VIDEO_STATE,
         tabId
       });
       if (!result.video) {
+        videoAvailability = "missing";
         throw new Error("Відео в цій вкладці не знайдено.");
       }
+      videoAvailability = "available";
       return result.video;
     } finally {
       setBusy(false);
     }
   }
 
-  elements.save.addEventListener("click", () => saveProfile());
-  for (const key of ["skipStart", "skipEnd"]) {
-    elements[key].addEventListener("input", () => acceptTimeEdit(key));
-    elements[key].addEventListener("change", () => acceptTimeEdit(key));
+  const advancedUi = AdvancedUi.create({
+    sendMessage,
+    getVideoState,
+    setStatus,
+    setBusy,
+    getTabContext: () => ({ tabId, topUrl }),
+    applyContext: (context, reset) => applyContext(context, true, reset),
+    onClipboardChanged: refreshCopiedSkipSettingsState
+  });
+
+  async function setMode(mode) {
+    if (mode === currentMode) return;
+    if (advancedUi.hasUnsavedChanges() &&
+        !confirm("Незбережені зміни серії буде скасовано. Перемкнути режим?")) {
+      elements.modeSwitch.checked = currentMode === "advanced";
+      return;
+    }
+    setBusy(true);
+    try {
+      const context = await sendMessage({
+        type: MESSAGE.SET_ADVANCED_MODE,
+        tabId,
+        expectedUrl: topUrl,
+        mode
+      });
+      applyContext(context, true, true);
+      await refreshCopiedSkipSettingsState();
+      setStatus(mode === "advanced" ? "Advanced Mode увімкнено." : "Easy Mode увімкнено.");
+    } catch (error) {
+      elements.modeSwitch.checked = currentMode === "advanced";
+      setStatus(error.message, true);
+    } finally {
+      setBusy(false);
+    }
   }
+
+  elements.modeSwitch.addEventListener("change", () =>
+    setMode(elements.modeSwitch.checked ? "advanced" : "easy")
+  );
+
+  elements.save.addEventListener("click", () => saveProfile());
   elements.enabled.addEventListener("change", () => {
-    saveProfile(elements.enabled.checked
+    return saveProfile(elements.enabled.checked
       ? "OpEndSkipper увімкнено для цього URL."
-      : "OpEndSkipper вимкнено для цього URL.");
+      : "OpEndSkipper вимкнено для цього URL.", {
+        ...currentProfile,
+        enabled: elements.enabled.checked
+      });
   });
 
   elements.copySkipSettings.addEventListener("click", async () => {

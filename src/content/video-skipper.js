@@ -15,6 +15,7 @@
   let currentTopUrl = null;
   let currentProfileKey = null;
   let profile = { ...DEFAULT_PROFILE };
+  let advancedState = { mode: "easy", currentEpisode: "1", ranges: [] };
   const attachedVideos = new WeakSet();
   const videoStates = new WeakMap();
 
@@ -41,7 +42,16 @@
     });
   }
 
-  function applyProfile(nextTopUrl, nextProfileKey, nextProfile) {
+  function toRuntimeAdvanced(value) {
+    return {
+      mode: value && value.mode === "advanced" ? "advanced" : "easy",
+      currentEpisode: value && typeof value.currentEpisode === "string"
+        ? value.currentEpisode : "1",
+      ranges: value && Array.isArray(value.ranges) ? value.ranges : []
+    };
+  }
+
+  function applyProfile(nextTopUrl, nextProfileKey, nextProfile, nextAdvanced) {
     const startSeconds = Number(nextProfile && nextProfile.skipStart);
     const endSeconds = Number(nextProfile && nextProfile.skipEnd);
     const cleanProfile = {
@@ -49,15 +59,18 @@
       skipStart: Time.isFiniteMediaTime(startSeconds) ? Math.max(0, startSeconds) : 0,
       skipEnd: Time.isFiniteMediaTime(endSeconds) ? Math.max(0, endSeconds) : 0
     };
+    const cleanAdvanced = toRuntimeAdvanced(nextAdvanced);
     const shouldResetVideos =
       currentProfileKey !== nextProfileKey ||
       cleanProfile.enabled !== profile.enabled ||
       cleanProfile.skipStart !== profile.skipStart ||
-      cleanProfile.skipEnd !== profile.skipEnd;
+      cleanProfile.skipEnd !== profile.skipEnd ||
+      JSON.stringify(cleanAdvanced) !== JSON.stringify(advancedState);
 
     currentTopUrl = nextTopUrl;
     currentProfileKey = nextProfileKey;
     profile = cleanProfile;
+    advancedState = cleanAdvanced;
 
     if (shouldResetVideos) {
       resetAllVideoStates();
@@ -78,12 +91,14 @@
       if (
         response.data.topUrl !== currentTopUrl ||
         response.data.profileKey !== currentProfileKey ||
-        JSON.stringify(response.data.profile) !== JSON.stringify(profile)
+        JSON.stringify(response.data.profile) !== JSON.stringify(profile) ||
+        JSON.stringify(toRuntimeAdvanced(response.data.advanced)) !== JSON.stringify(advancedState)
       ) {
         applyProfile(
           response.data.topUrl,
           response.data.profileKey,
-          response.data.profile
+          response.data.profile,
+          response.data.advanced
         );
       }
     } catch (error) {
@@ -106,7 +121,24 @@
     state.lastActivity = Date.now();
 
     const currentTime = Time.readCurrentTime(video);
-    if (!profile.enabled || currentTime === null) {
+    if (currentTime === null) {
+      return;
+    }
+
+    if (!profile.enabled) {
+      return;
+    }
+
+    if (advancedState.mode === "advanced") {
+      for (const range of advancedState.ranges) {
+        if (RangeExecutor.executeRange(video, {
+          id: `advanced:${advancedState.currentEpisode}:${range.key}`,
+          start: range.start,
+          end: range.end
+        }, state.handledRanges, runtimeSettings)) {
+          break;
+        }
+      }
       return;
     }
 
@@ -219,7 +251,7 @@
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message && message.type === MESSAGE.PROFILE_UPDATED) {
-      applyProfile(message.topUrl, message.profileKey, message.profile);
+      applyProfile(message.topUrl, message.profileKey, message.profile, message.advanced);
       return;
     }
 

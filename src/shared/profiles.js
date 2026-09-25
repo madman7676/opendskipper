@@ -36,6 +36,9 @@
     }
 
     const { skipStart, skipEnd } = value;
+    if (value.type !== undefined && value.type !== "easy-skip-settings") {
+      return null;
+    }
     if (
       typeof skipStart !== "number" ||
       !Number.isFinite(skipStart) ||
@@ -53,7 +56,7 @@
   async function copySkipSettings(settings) {
     const cleanSettings = sanitizeSkipSettings(settings);
     await chrome.storage.local.set({
-      [COPIED_SKIP_SETTINGS_KEY]: cleanSettings
+      [COPIED_SKIP_SETTINGS_KEY]: { type: "easy-skip-settings", ...cleanSettings }
     });
     return cleanSettings;
   }
@@ -121,6 +124,7 @@
     getCopiedSkipSettings,
     hasCopiedSkipSettings,
     loadProfile,
+    profileStorageKey,
     removeLegacySettings,
     sanitizeSkipSettings,
     sanitizeProfile,

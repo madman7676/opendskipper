@@ -1,10 +1,15 @@
 importScripts(
   "../shared/constants.js",
+  "../shared/time.js",
+  "../shared/advanced.js",
   "../shared/url-fixers.js",
-  "../shared/profiles.js"
+  "../shared/profiles.js",
+  "advanced-storage.js"
 );
 
 const {
+  ADVANCED_PROFILE_PREFIX,
+  AdvancedStorage,
   MESSAGE,
   PROFILE_KEY_PREFIX,
   Profiles,
@@ -29,13 +34,15 @@ async function getTabContext(tabId, includeFixerSettings = false) {
 
   const resolution = await UrlFixers.resolveProfileKey(topFrame.url);
   const loaded = await Profiles.loadProfile(resolution.profileKey);
+  const advanced = await AdvancedStorage.loadContext(resolution.profileKey);
   const context = {
     tabId,
     topUrl: topFrame.url,
     profileKey: resolution.profileKey,
     urlFixerWarning: resolution.warning,
     exists: loaded.exists,
-    profile: loaded.profile
+    profile: loaded.profile,
+    advanced
   };
 
   if (includeFixerSettings) {
@@ -54,12 +61,14 @@ async function getSenderContext(sender) {
 
 async function broadcastProfile(tabId, topUrl, profileKey, profile, urlFixerWarning = null) {
   try {
+    const advanced = await AdvancedStorage.loadContext(profileKey);
     await chrome.tabs.sendMessage(tabId, {
       type: MESSAGE.PROFILE_UPDATED,
       topUrl,
       profileKey,
       urlFixerWarning,
-      profile
+      profile,
+      advanced
     });
   } catch (error) {
     // Вкладка може ще не мати content script або вже завершувати навігацію.
@@ -128,6 +137,43 @@ async function handleMessage(message, sender) {
 
     case MESSAGE.GET_POPUP_CONTEXT:
       return getTabContext(message.tabId, true);
+
+    case MESSAGE.SET_ADVANCED_MODE:
+    case MESSAGE.SET_ADVANCED_EPISODE:
+    case MESSAGE.SAVE_ADVANCED_RANGES: {
+      const current = await getTabContext(message.tabId, true);
+      if (message.expectedUrl && message.expectedUrl !== current.topUrl) {
+        throw new Error("URL вкладки змінився. Відкрийте popup ще раз.");
+      }
+      if (message.type === MESSAGE.SET_ADVANCED_MODE) {
+        await AdvancedStorage.setMode(current.profileKey, message.mode);
+      } else if (message.type === MESSAGE.SET_ADVANCED_EPISODE) {
+        await AdvancedStorage.setEpisode(current.profileKey, message.episodeId);
+      } else {
+        await AdvancedStorage.saveRanges(
+          current.profileKey, message.episodeId, message.ranges
+        );
+      }
+      const context = await getTabContext(message.tabId, true);
+      await broadcastProfile(
+        context.tabId, context.topUrl, context.profileKey,
+        context.profile, context.urlFixerWarning
+      );
+      return context;
+    }
+
+    case MESSAGE.COPY_ADVANCED_RANGES: {
+      const context = await getTabContext(message.tabId);
+      if (message.expectedUrl && message.expectedUrl !== context.topUrl) {
+        throw new Error("URL вкладки змінився. Відкрийте popup ще раз.");
+      }
+      return {
+        timingKeys: await AdvancedStorage.copyRanges(context.profileKey, message.selectedKey ?? null)
+      };
+    }
+
+    case MESSAGE.GET_ADVANCED_CLIPBOARD:
+      return { ranges: await AdvancedStorage.getClipboard() };
 
     case MESSAGE.GET_COPIED_SKIP_SETTINGS:
       return {
@@ -267,6 +313,30 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(handleSameDocumentNavigat
 chrome.webNavigation.onReferenceFragmentUpdated.addListener(handleSameDocumentNavigation);
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local") {
+    const changedProfiles = Object.entries(changes)
+      .filter(([key, change]) =>
+        key.startsWith(ADVANCED_PROFILE_PREFIX) &&
+        change.newValue && typeof change.newValue.profileKey === "string"
+      )
+      .map(([, change]) => change.newValue.profileKey);
+    if (changedProfiles.length > 0) {
+      chrome.tabs.query({}).then((tabs) => {
+        for (const tab of tabs) {
+          if (!Number.isInteger(tab.id)) continue;
+          getTabContext(tab.id).then((context) => {
+            if (changedProfiles.includes(context.profileKey)) {
+              return broadcastProfile(
+                context.tabId, context.topUrl, context.profileKey,
+                context.profile, context.urlFixerWarning
+              );
+            }
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+    return;
+  }
   if (areaName !== "sync") {
     return;
   }

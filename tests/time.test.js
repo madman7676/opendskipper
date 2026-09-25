@@ -136,7 +136,7 @@ test("invalid ranges and failed media seek do not become handled", () => {
   assert.equal(handled.has("rejected"), false);
 });
 
-function contentHarness(initialProfile, videoOrVideos) {
+function contentHarness(initialProfile, videoOrVideos, initialAdvanced = null) {
   const videos = Array.isArray(videoOrVideos) ? videoOrVideos : [videoOrVideos];
   const listenerMaps = new Map();
   for (const video of videos) {
@@ -161,7 +161,10 @@ function contentHarness(initialProfile, videoOrVideos) {
       onMessage: { addListener(callback) { runtimeListeners.push(callback); } },
       async sendMessage(message) {
         messages.push(message);
-        return { ok: true, data: { topUrl: "https://test/", profileKey: "test", profile: initialProfile } };
+        return { ok: true, data: {
+          topUrl: "https://test/", profileKey: "test", profile: initialProfile,
+          advanced: initialAdvanced
+        } };
       }
     } }
   });
@@ -279,6 +282,84 @@ test("profile changes reset one-shot state for an already playing video", async 
     profile: { enabled: true, skipStart: 12, skipEnd: 0 }
   });
   assert.equal(video.currentTime, 12);
+});
+
+test("runtime executes only selected mode via shared range executor and resets on updates", async () => {
+  const video = {
+    currentTime: 0, duration: 300, readyState: 1,
+    paused: false, ended: false, src: "advanced-test"
+  };
+  const profile = { enabled: true, skipStart: 10, skipEnd: 0 };
+  const advanced = {
+    mode: "easy", currentEpisode: "1",
+    ranges: [{ key: "0:2000", start: 0, end: 20 }]
+  };
+  const { listeners, runtimeListeners, rangeCalls } = contentHarness(profile, video, advanced);
+  await flush();
+  assert.equal(video.currentTime, 10);
+  assert.deepEqual(rangeCalls, ["easy-opening"]);
+  const update = (nextAdvanced) => runtimeListeners[0]({
+    type: "profile:updated", topUrl: "https://test/", profileKey: "test",
+    profile, advanced: nextAdvanced
+  });
+  video.currentTime = 0;
+  update({ ...advanced, mode: "advanced" });
+  assert.equal(video.currentTime, 20);
+  assert.equal(rangeCalls.at(-1), "advanced:1:0:2000");
+  video.currentTime = 0;
+  listeners.get("timeupdate")();
+  assert.equal(video.currentTime, 0); // Handled until episode or ranges change.
+  update({ mode: "advanced", currentEpisode: "2", ranges: [
+    { key: "0:2000", start: 0, end: 20 }
+  ] });
+  assert.equal(video.currentTime, 20);
+  assert.equal(rangeCalls.at(-1), "advanced:2:0:2000");
+  video.currentTime = 0;
+  update({ mode: "advanced", currentEpisode: "2", ranges: [
+    { key: "0:3000", start: 0, end: 30 }
+  ] });
+  assert.equal(video.currentTime, 30); // Saved edit/add/delete broadcast resets handled.
+  video.currentTime = 0;
+  update(advanced);
+  assert.equal(video.currentTime, 10);
+  assert.equal(rangeCalls.at(-1), "easy-opening");
+});
+
+test("global enabled gates both modes and re-enabling uses the current mode", async () => {
+  const video = {
+    currentTime: 0, duration: 300, readyState: 1,
+    paused: false, ended: false, src: "global-enabled"
+  };
+  const easy = { mode: "easy", currentEpisode: "1", ranges: [
+    { key: "0:2000", start: 0, end: 20 }
+  ] };
+  const advanced = { ...easy, mode: "advanced" };
+  const disabled = { enabled: false, skipStart: 10, skipEnd: 0 };
+  const enabled = { ...disabled, enabled: true };
+  const harness = contentHarness(disabled, video, easy);
+  await flush();
+  assert.equal(video.currentTime, 0);
+  assert.deepEqual(harness.rangeCalls, []);
+  const update = (profile, mode) => harness.runtimeListeners[0]({
+    type: "profile:updated", topUrl: "https://test/", profileKey: "test",
+    profile, advanced: mode
+  });
+  update(disabled, advanced);
+  assert.equal(video.currentTime, 0);
+  assert.deepEqual(harness.rangeCalls, []);
+  update(enabled, advanced);
+  assert.equal(video.currentTime, 20);
+  assert.deepEqual(harness.rangeCalls, ["advanced:1:0:2000"]);
+  video.currentTime = 0;
+  update(disabled, advanced);
+  assert.equal(video.currentTime, 0);
+  harness.listeners.get("timeupdate")();
+  assert.equal(video.currentTime, 0);
+  update(disabled, easy);
+  assert.equal(video.currentTime, 0);
+  update(enabled, easy);
+  assert.equal(video.currentTime, 10);
+  assert.equal(harness.rangeCalls.at(-1), "easy-opening");
 });
 
 test("overlapping Easy opening and ending seek on successive playback events", async () => {
@@ -425,38 +506,74 @@ function popupHarness(initialProfile, videoState, options = {}) {
       disabled: false,
       inert: false,
       hidden: false,
+      children: [],
+      dataset: {},
       classList: { toggle() {} },
-      addEventListener(name, callback) { listeners.set(name, callback); },
-      async fire(name) { await listeners.get(name)(); },
+      addEventListener(name, callback) {
+        listeners.set(name, [...(listeners.get(name) || []), callback]);
+      },
+      async fire(name) {
+        for (const callback of listeners.get(name) || []) await callback();
+      },
       setAttribute(name, value) { attributes.set(name, value); },
       getAttribute(name) { return attributes.get(name); },
-      replaceChildren() {},
-      append() {},
+      replaceChildren() { this.children = []; },
+      append(...children) { this.children.push(...children); },
+      focus() {},
       querySelectorAll() { return []; }
     };
   }
   const elements = Object.fromEntries(ids.map((id) => [id, element()]));
   let profile = { ...initialProfile };
+  let advanced = { mode: "easy", currentEpisode: "1", timingKeys: [], ranges: [] };
   let copied = null;
+  let currentVideo = videoState;
+  let currentProfileKey = options.profileKey || "test";
+  let fixerRules = [];
+  const rawUrl = options.rawUrl || "https://test/";
   const calls = [];
   const queries = [];
+  const timers = new Map();
+  const intervals = new Map();
+  let nextTimerId = 0;
   let releaseContext;
   const contextGate = options.deferContext
     ? new Promise((resolve) => { releaseContext = resolve; })
     : null;
   const contextFor = () => ({
-    topUrl: "https://test/",
-    profileKey: "test",
+    topUrl: rawUrl,
+    profileKey: currentProfileKey,
     profile,
+    advanced,
     exists: true,
-    urlFixerSettings: { schemaVersion: 1, rules: [] }
+    urlFixerWarning: options.urlFixerWarning || null,
+    urlFixerSettings: { schemaVersion: 1, rules: fixerRules }
   });
   const context = vm.createContext({
+    setTimeout(callback, delay) {
+      const id = ++nextTimerId;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeout(id) { timers.delete(id); },
+    setInterval(callback, delay) {
+      const id = ++nextTimerId;
+      intervals.set(id, { callback, delay });
+      return id;
+    },
+    clearInterval(id) { intervals.delete(id); },
+    crypto: require("node:crypto").webcrypto,
+    URL,
+    confirm() { return true; },
     document: {
       getElementById(id) { return elements[id]; },
       createElement() { return element(); }
     },
     chrome: {
+      storage: { local: {
+        async get() { return {}; },
+        async set() {}
+      } },
       tabs: { async query(query) {
         queries.push(query);
         return query.currentWindow
@@ -474,7 +591,17 @@ function popupHarness(initialProfile, videoState, options = {}) {
             break;
           case "skip-buffer:get": data = { settings: copied }; break;
           case "profile:save-for-tab":
+            if (options.failSave) return { ok: false, error: "Збереження не вдалося." };
             profile = { ...message.profile };
+            data = contextFor();
+            break;
+          case "advanced:set-mode":
+            advanced = { ...advanced, mode: message.mode };
+            data = contextFor();
+            break;
+          case "url-fixers:save-for-tab":
+            fixerRules = message.rules;
+            currentProfileKey = context.OpenDSkipper.UrlFixers.applyUrlFixers(rawUrl, fixerRules).profileKey;
             data = contextFor();
             break;
           case "skip-buffer:copy": copied = { ...message.settings }; data = { settings: copied }; break;
@@ -482,7 +609,7 @@ function popupHarness(initialProfile, videoState, options = {}) {
             profile = { ...profile, ...copied };
             data = contextFor();
             break;
-          case "video:collect-state": data = { video: videoState }; break;
+          case "video:collect-state": data = { video: currentVideo }; break;
           default: throw new Error(`Unexpected message: ${message.type}`);
         }
         return { ok: true, data };
@@ -491,20 +618,14 @@ function popupHarness(initialProfile, videoState, options = {}) {
   });
   run("src/shared/constants.js", context);
   run("src/shared/time.js", context);
-  context.OpenDSkipper.UrlFixers = {
-    OPERATION: {
-      TRUNCATE_AFTER: "truncateAfter",
-      TRUNCATE_AFTER_LAST: "truncateAfterLast",
-      REMOVE_EXACT: "removeExact",
-      REPLACE_EXACT: "replaceExact"
-    },
-    POSITION: { START: "start", END: "end", ANYWHERE: "anywhere" },
-    MAX_RULES: 10,
-    applyUrlFixers(url) { return { profileKey: url, warning: null }; }
-  };
+  run("src/shared/advanced.js", context);
+  run("src/shared/url-fixers.js", context);
+  run("src/popup/time-field.js", context);
+  run("src/popup/advanced-ui.js", context);
   run("src/popup/popup.js", context);
   return {
-    elements, calls, queries, releaseContext,
+    elements, calls, queries, releaseContext, timers, intervals,
+    setVideo(value) { currentVideo = value; },
     get profile() { return profile; },
     get copied() { return copied; }
   };
@@ -560,19 +681,25 @@ test("popup current and remaining actions retain media precision", async () => {
 test("popup DOM IDs match JS and loading locks every context action", async () => {
   const html = fs.readFileSync(path.join(root, "src/popup/popup.html"), "utf8");
   const js = fs.readFileSync(path.join(root, "src/popup/popup.js"), "utf8");
+  const advancedJs = fs.readFileSync(path.join(root, "src/popup/advanced-ui.js"), "utf8");
   const htmlIds = new Set(Array.from(html.matchAll(/\bid="([^"]+)"/g), (match) => match[1]));
   const scriptIds = Array.from(js.matchAll(/document\.getElementById\("([^"]+)"\)/g), (match) => match[1]);
   assert.deepEqual(scriptIds.filter((id) => !htmlIds.has(id)), []);
+  const advancedIds = advancedJs.match(/const ids = \[([\s\S]*?)\];/)[1]
+    .match(/"[^"]+"/g).map((id) => id.slice(1, -1));
+  assert.deepEqual(advancedIds.filter((id) => !htmlIds.has(id)), []);
   assert.match(html, /<main id="popupContent" inert/);
 
   const popup = popupHarness(
     { enabled: true, skipStart: 84.732, skipEnd: 0 },
-    null,
+    { currentTime: 84.732, duration: 1432.428 },
     { deferContext: true }
   );
   assert.equal(popup.elements.popupContent.inert, true);
   assert.equal(popup.elements.popupOverlay.hidden, false);
   assert.equal(popup.elements.popupSpinner.hidden, false);
+  assert.equal(popup.elements.modeSwitch.disabled, true);
+  assert.equal(popup.elements.advancedSection.inert, true);
   for (const id of ["enabled", "skipStart", "skipEnd", "useCurrentStart", "useCurrentEnd",
     "save", "copySkipSettings", "pasteSkipSettings", "urlFixerControls", "addUrlFixer"]) {
     assert.equal(popup.elements[id].disabled, true, id);
@@ -586,8 +713,10 @@ test("popup DOM IDs match JS and loading locks every context action", async () =
   await flush();
   assert.equal(popup.elements.popupContent.inert, false);
   assert.equal(popup.elements.popupOverlay.hidden, true);
-  assert.equal(popup.elements.pageUrl.textContent, "https://test/");
+  assert.equal(popup.elements.pageUrl.textContent, "test");
   assert.equal(popup.elements.skipStart.disabled, false);
+  assert.equal(popup.elements.modeSwitch.disabled, false);
+  assert.equal(popup.elements.advancedSection.inert, false);
   assert.equal(popup.elements.addUrlFixer.disabled, false);
 });
 
@@ -616,6 +745,265 @@ test("popup fallback finds a valid tab and terminal failures never send a null t
   assert.equal(rejected.elements.popupContent.inert, true);
   assert.equal(rejected.elements.popupSpinner.hidden, true);
   assert.match(rejected.elements.popupOverlayMessage.textContent, /Контекст вкладки недоступний/);
+});
+
+test("popup mode switch persists through worker message and changes visible section", async () => {
+  const html = fs.readFileSync(path.join(root, "src/popup/popup.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/popup/popup.css"), "utf8");
+  assert.match(html, /id="modeSwitch" type="checkbox" role="switch" aria-label="Advanced mode"/);
+  assert.match(css, /input:checked \+ \.mode-track \.mode-thumb\s*\{[^}]*translateX/s);
+  assert.match(css, /input:focus-visible \+ \.mode-track/);
+  const popup = popupHarness({ enabled: true, skipStart: 10, skipEnd: 2 }, null);
+  await flush();
+  assert.equal(popup.elements.easySection.hidden, false);
+  assert.equal(popup.elements.advancedSection.hidden, true);
+  popup.elements.modeSwitch.checked = true;
+  await popup.elements.modeSwitch.fire("change");
+  const message = popup.calls.find((call) => call.type === "advanced:set-mode");
+  assert.equal(message.tabId, 1);
+  assert.equal(message.expectedUrl, "https://test/");
+  assert.equal(message.mode, "advanced");
+  assert.equal(popup.elements.easySection.hidden, true);
+  assert.equal(popup.elements.advancedSection.hidden, false);
+  popup.elements.modeSwitch.checked = false;
+  await popup.elements.modeSwitch.fire("change");
+  assert.equal(popup.elements.easySection.hidden, false);
+  assert.equal(popup.profile.skipStart, 10);
+});
+
+test("popup Enabled persists without changing mode or Easy settings", async () => {
+  const popup = popupHarness({ enabled: false, skipStart: 10, skipEnd: 2 }, null);
+  await flush();
+  popup.elements.modeSwitch.checked = true;
+  await popup.elements.modeSwitch.fire("change");
+  assert.equal(popup.profile.enabled, false);
+  popup.elements.skipStart.value = "00:00:30";
+  await popup.elements.skipStart.fire("change"); // Unsaved Easy edit must not leak into Enabled save.
+  popup.elements.enabled.checked = true;
+  await popup.elements.enabled.fire("change");
+  const saved = popup.calls.filter((call) => call.type === "profile:save-for-tab").at(-1);
+  assert.equal(saved.profile.enabled, true);
+  assert.equal(saved.profile.skipStart, 10);
+  assert.equal(saved.profile.skipEnd, 2);
+  assert.equal(popup.elements.modeSwitch.checked, true);
+  assert.equal(popup.elements.advancedSection.hidden, false);
+  assert.equal(popup.profile.enabled, true);
+  assert.equal(popup.calls.some((call) => call.type === "advanced:set-mode"), true);
+});
+
+test("popup header, service area, and semantic actions have the intended hierarchy", () => {
+  const html = fs.readFileSync(path.join(root, "src/popup/popup.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/popup/popup.css"), "utf8");
+  assert.match(html, /<header class="popup-header">\s*<h1>OpEndSkipper<\/h1>\s*<label class="toggle global-enabled">\s*<span>Увімкнено<\/span>\s*<input id="enabled"/);
+  assert.match(html, /<div class="service-area">[\s\S]*id="pageUrl"[\s\S]*Advanced mode[\s\S]*id="modeSwitch"/);
+  assert.match(html, /id="mainSettings"[\s\S]*id="easySection"[\s\S]*id="advancedSection"[\s\S]*id="settingsOverlay"[\s\S]*id="urlFixerSection"/);
+  assert.match(css, /\.popup-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/s);
+  assert.match(css, /\.service-area\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/s);
+  assert.match(css, /\.mode-control\s*\{[^}]*width:\s*38px;[^}]*height:\s*20px/s);
+  assert.match(css, /\.mode-control input:checked \+ \.mode-track\s*\{[^}]*#5f9a75/s);
+  assert.match(css, /\.mode-track\s*\{[^}]*#a26065/s);
+  for (const [id, semanticClass] of [
+    ["saveAdvancedRanges", "semantic-save-set"],
+    ["cancelAdvancedRanges", "semantic-cancel-set"],
+    ["applyAdvancedEdit", "semantic-apply-draft"],
+    ["cancelAdvancedEdit", "semantic-cancel-draft"]
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*class="[^"]*${semanticClass}`));
+    assert.match(css, new RegExp(`\\.${semanticClass}\\s*\\{[^}]*border-color:`));
+  }
+  assert.match(css, /\.semantic-cancel-draft\s*\{[^}]*background:\s*transparent/s);
+  assert.match(css, /\.range-icon\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent/s);
+  assert.match(css, /\.toast-layer\s*\{[^}]*position:\s*fixed;[^}]*z-index:\s*3/s);
+  assert.match(css, /\.toast-layer\s*\{[^}]*top:\s*10px/s);
+  assert.match(css, /\.settings-overlay\s*\{[^}]*z-index:\s*2/s);
+  assert.match(css, /body\s*\{[^}]*overflow-x:\s*hidden/s);
+  assert.match(css, /\.page-url\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+  assert.match(css, /\.templates-title::before\s*\{[^}]*▶/s);
+  assert.match(css, /\.templates-section\[open\] \.templates-title::before\s*\{[^}]*▼/s);
+});
+
+test("no video blocks only settings, then polling unlocks them when video appears", async () => {
+  const popup = popupHarness({ enabled: true, skipStart: 12, skipEnd: 3 }, null);
+  await flush();
+  const { elements: e } = popup;
+  assert.equal(e.popupOverlay.hidden, true);
+  assert.equal(e.popupContent.inert, false);
+  assert.equal(e.settingsOverlay.hidden, false);
+  assert.equal(e.settingsOverlayMessage.textContent, "Відео на сторінці не знайдено");
+  assert.equal(e.mainSettingsContent.inert, true);
+  assert.equal(e.advancedSection.inert, true);
+  for (const id of ["skipStart", "skipEnd", "useCurrentStart", "useCurrentEnd", "save", "copySkipSettings"]) {
+    assert.equal(e[id].disabled, true, id);
+  }
+  assert.equal(e.enabled.disabled, false);
+  assert.equal(e.modeSwitch.disabled, false);
+  assert.equal(e.urlFixerControls.disabled, false);
+  assert.equal(e.addUrlFixer.disabled, false);
+  e.modeSwitch.checked = true;
+  await e.modeSwitch.fire("change");
+  assert.equal(e.advancedSection.hidden, false);
+  assert.equal(e.mainSettingsContent.inert, true);
+  e.enabled.checked = false;
+  await e.enabled.fire("change");
+  assert.equal(popup.profile.enabled, false);
+  popup.setVideo({ currentTime: 17.5, duration: 100 });
+  assert.equal(popup.intervals.size, 1);
+  await popup.intervals.values().next().value.callback();
+  await flush();
+  assert.equal(e.settingsOverlay.hidden, true);
+  assert.equal(e.mainSettingsContent.inert, false);
+  assert.equal(e.advancedSection.inert, false);
+  assert.equal(e.skipStart.disabled, false);
+});
+
+test("top key uses normalized profile key and updates immediately after fixer save", async () => {
+  const rawUrl = "https://test.example/watch/c/123";
+  const popup = popupHarness({ enabled: true, skipStart: 0, skipEnd: 0 }, null, {
+    rawUrl, profileKey: rawUrl
+  });
+  await flush();
+  const { elements: e } = popup;
+  assert.equal(e.pageUrl.textContent, rawUrl);
+  assert.equal(e.previewOriginalUrl.textContent, rawUrl);
+  await e.addUrlFixer.fire("click");
+  const form = e.addFixerForm.children[0];
+  const value = form.children[1].children[0].children[0];
+  value.value = "/123";
+  await value.fire("input");
+  const save = form.children[2].children[1];
+  await save.fire("click");
+  assert.equal(popup.calls.find((call) => call.type === "url-fixers:save-for-tab").tabId, 1);
+  assert.equal(e.pageUrl.textContent, "https://test.example/watch/c");
+  assert.equal(e.previewOriginalUrl.textContent, rawUrl);
+  assert.equal(e.previewProfileKey.textContent, "https://test.example/watch/c");
+});
+
+test("service worker broadcasts mode and Enabled changes without navigation", async () => {
+  const sync = new Map();
+  const local = new Map();
+  const broadcasts = [];
+  let onMessage;
+  const store = (map) => ({
+    async get(keys) {
+      const result = {};
+      for (const key of Array.isArray(keys) ? keys : [keys]) result[key] = map.get(key);
+      return result;
+    },
+    async set(values) {
+      for (const [key, value] of Object.entries(values)) map.set(key, value);
+    },
+    async remove(keys) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) map.delete(key);
+    }
+  });
+  const addListener = () => {};
+  const context = vm.createContext({
+    crypto: require("node:crypto").webcrypto,
+    TextEncoder,
+    URL,
+    console,
+    chrome: {
+      runtime: {
+        onMessage: { addListener(callback) { onMessage = callback; } },
+        onInstalled: { addListener }, onStartup: { addListener }
+      },
+      tabs: {
+        async sendMessage(tabId, message) { broadcasts.push({ tabId, message }); },
+        async query() { return []; },
+        onUpdated: { addListener }
+      },
+      webNavigation: {
+        async getFrame() { return { url: "https://test/" }; },
+        onHistoryStateUpdated: { addListener },
+        onReferenceFragmentUpdated: { addListener }
+      },
+      storage: {
+        sync: store(sync), local: store(local), onChanged: { addListener }
+      }
+    }
+  });
+  context.importScripts = (...files) => {
+    for (const file of files) run(path.join("src/background", file), context);
+  };
+  run("src/background/service-worker.js", context);
+  const send = (message) => new Promise((resolve) => {
+    onMessage(message, {}, resolve);
+  });
+  const mode = await send({ type: "advanced:set-mode", tabId: 1,
+    expectedUrl: "https://test/", mode: "advanced" });
+  assert.equal(mode.ok, true);
+  assert.equal(mode.data.advanced.mode, "advanced");
+  assert.equal(mode.data.profile.enabled, false);
+  assert.equal(broadcasts.at(-1).message.advanced.mode, "advanced");
+  assert.equal(broadcasts.at(-1).message.profile.enabled, false);
+  const enabled = await send({ type: "profile:save-for-tab", tabId: 1,
+    expectedUrl: "https://test/", profile: { enabled: true, skipStart: 10, skipEnd: 2 } });
+  assert.equal(enabled.ok, true);
+  assert.equal(enabled.data.profile.enabled, true);
+  assert.equal(enabled.data.advanced.mode, "advanced");
+  assert.equal(broadcasts.at(-1).message.profile.enabled, true);
+  assert.equal(broadcasts.at(-1).message.advanced.mode, "advanced");
+  assert.ok(broadcasts.every(({ tabId, message }) =>
+    tabId === 1 && message.type === "profile:updated"));
+});
+
+test("toast overlays content, replaces messages, closes, and dismisses after seven seconds", async () => {
+  const html = fs.readFileSync(path.join(root, "src/popup/popup.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/popup/popup.css"), "utf8");
+  assert.ok(html.indexOf('id="toastLayer"') > html.indexOf("</main>"));
+  assert.match(css, /\.toast-layer\s*\{[^}]*position:\s*fixed/s);
+  assert.match(css, /\.toast-layer\s*\{[^}]*pointer-events:\s*none/s);
+  assert.match(css, /\.toast\s*\{[^}]*pointer-events:\s*auto/s);
+  const popup = popupHarness({ enabled: true, skipStart: 0, skipEnd: 0 }, null);
+  await flush();
+  assert.equal(popup.elements.toast.hidden, false);
+  assert.equal(popup.elements.toast.getAttribute("data-type"), "info");
+  assert.equal(popup.timers.size, 1);
+  const firstTimer = [...popup.timers.keys()][0];
+  await popup.elements.save.fire("click");
+  assert.equal(popup.elements.toastMessage.textContent, "Налаштування збережено.");
+  assert.equal(popup.elements.toast.getAttribute("data-type"), "success");
+  assert.equal(popup.timers.has(firstTimer), false);
+  assert.equal(popup.timers.size, 1);
+  const [{ callback, delay }] = [...popup.timers.values()];
+  assert.equal(delay, 7000);
+  callback();
+  assert.equal(popup.elements.toast.hidden, true);
+  assert.equal(popup.timers.size, 0);
+  await popup.elements.save.fire("click");
+  assert.equal(popup.elements.toast.hidden, false);
+  await popup.elements.toastClose.fire("click");
+  assert.equal(popup.elements.toast.hidden, true);
+  assert.equal(popup.timers.size, 0);
+});
+
+test("save and Advanced validation errors use the same accessible error toast", async () => {
+  const failed = popupHarness({ enabled: true, skipStart: 0, skipEnd: 0 }, null,
+    { failSave: true });
+  await flush();
+  await failed.elements.save.fire("click");
+  assert.equal(failed.elements.toastMessage.textContent, "Збереження не вдалося.");
+  assert.equal(failed.elements.toast.getAttribute("data-type"), "error");
+  assert.equal(failed.elements.toast.getAttribute("role"), "alert");
+  assert.equal(failed.elements.toast.getAttribute("aria-live"), "assertive");
+  failed.elements.enabled.checked = false;
+  await failed.elements.enabled.fire("change");
+  assert.equal(failed.elements.enabled.checked, true);
+  await failed.elements.addAdvancedRange.fire("click");
+  await failed.elements.applyAdvancedEdit.fire("click");
+  assert.match(failed.elements.toastMessage.textContent, /Діапазон/);
+  assert.equal(failed.elements.toast.getAttribute("data-type"), "error");
+});
+
+test("URL fixer warning uses toast without inserting an inline message", async () => {
+  const html = fs.readFileSync(path.join(root, "src/popup/popup.html"), "utf8");
+  assert.doesNotMatch(html, /id="status"|id="urlFixerWarning"|class="field-error"/);
+  const popup = popupHarness({ enabled: true, skipStart: 0, skipEnd: 0 }, null,
+    { urlFixerWarning: "Не вдалося застосувати URL-фіксер." });
+  await flush();
+  assert.equal(popup.elements.toastMessage.textContent,
+    "Не вдалося застосувати URL-фіксер.");
+  assert.equal(popup.elements.toast.getAttribute("data-type"), "error");
 });
 
 test("existing sync profile and local copy buffer keep fractional seconds", async () => {

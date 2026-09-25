@@ -20,10 +20,17 @@
     SAVE_URL_FIXER_SETTINGS: "url-fixers:save-for-tab",
     COLLECT_VIDEO_STATE: "video:collect-state",
     REQUEST_VIDEO_STATE: "video:request-state",
-    REPORT_VIDEO_STATE: "video:report-state"
+    REPORT_VIDEO_STATE: "video:report-state",
+    SET_ADVANCED_MODE: "advanced:set-mode",
+    SET_ADVANCED_EPISODE: "advanced:set-episode",
+    SAVE_ADVANCED_RANGES: "advanced:save-ranges",
+    COPY_ADVANCED_RANGES: "advanced:copy-ranges",
+    GET_ADVANCED_CLIPBOARD: "advanced:get-clipboard"
   });
 
   namespace.PROFILE_KEY_PREFIX = "profile:v1:";
+  namespace.ADVANCED_PROFILE_PREFIX = "advancedProfile:v1:";
+  namespace.ADVANCED_TIMING_POOL_KEY = "advancedTimingPool:v1";
   namespace.COPIED_SKIP_SETTINGS_KEY = "copiedSkipSettings";
   namespace.URL_FIXER_SETTINGS_KEY = "urlFixerSettings";
   namespace.URL_FIXER_SCHEMA_VERSION = 1;
