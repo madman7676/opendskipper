@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
-    <main>
+    <main id="popupContent" inert aria-busy="true">
       <h1>OpEndSkipper</h1>
       <p id="pageUrl" class="page-url">Завантаження URL…</p>
 
@@ -18,29 +18,21 @@
 
       <label for="skipStart">Пропустити на початку, с</label>
       <div class="input-row">
-        <input id="skipStart" type="number" min="0" step="1" value="0">
+        <div class="time-value">
+          <input id="skipStart" type="time" step="1" value="00:00:00">
+          <span id="skipStartFraction" class="time-fraction" aria-label="Дробова частина секунди">.000</span>
+        </div>
         <button id="useCurrentStart" class="secondary" type="button" title="Взяти поточний час відео">Поточний</button>
       </div>
 
       <label for="skipEnd">Пропустити наприкінці, с</label>
       <div class="input-row">
-        <input id="skipEnd" type="number" min="0" step="1" value="0">
+        <div class="time-value">
+          <input id="skipEnd" type="time" step="1" value="00:00:00">
+          <span id="skipEndFraction" class="time-fraction" aria-label="Дробова частина секунди">.000</span>
+        </div>
         <button id="useCurrentEnd" class="secondary" type="button" title="Взяти час до завершення відео">Залишок</button>
       </div>
-
-      <details>
-        <summary>Калькулятор тривалості</summary>
-        <div class="time-grid">
-          <span>Початок</span>
-          <input id="calcStartMinutes" type="number" min="0" step="1" placeholder="хв" aria-label="Хвилини початку">
-          <input id="calcStartSeconds" type="number" min="0" max="59" step="1" placeholder="с" aria-label="Секунди початку">
-          <span>Кінець</span>
-          <input id="calcEndMinutes" type="number" min="0" step="1" placeholder="хв" aria-label="Хвилини кінця">
-          <input id="calcEndSeconds" type="number" min="0" max="59" step="1" placeholder="с" aria-label="Секунди кінця">
-        </div>
-        <button id="calculateDuration" class="secondary calculate" type="button">Порахувати</button>
-        <p id="calculationResult" class="calculation-result"></p>
-      </details>
 
       <button id="save" class="primary" type="button">Зберегти для цього URL</button>
 
@@ -86,7 +78,13 @@
       <p id="status" role="status" aria-live="polite"></p>
     </main>
 
+    <div id="popupOverlay" class="popup-overlay" role="status" aria-live="polite">
+      <div id="popupSpinner" class="popup-spinner" aria-hidden="true"></div>
+      <p id="popupOverlayMessage">Завантаження URL…</p>
+    </div>
+
     <script src="../shared/constants.js"></script>
+    <script src="../shared/time.js"></script>
     <script src="../shared/url-fixers.js"></script>
     <script src="popup.js"></script>
   </body>

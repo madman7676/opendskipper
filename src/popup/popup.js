@@ -4,22 +4,23 @@
   const {
     DEFAULT_PROFILE,
     MESSAGE,
+    Time,
     UrlFixers
   } = globalThis.OpenDSkipper;
 
   const elements = {
+    popupContent: document.getElementById("popupContent"),
+    popupOverlay: document.getElementById("popupOverlay"),
+    popupSpinner: document.getElementById("popupSpinner"),
+    popupOverlayMessage: document.getElementById("popupOverlayMessage"),
     pageUrl: document.getElementById("pageUrl"),
     enabled: document.getElementById("enabled"),
     skipStart: document.getElementById("skipStart"),
+    skipStartFraction: document.getElementById("skipStartFraction"),
     skipEnd: document.getElementById("skipEnd"),
+    skipEndFraction: document.getElementById("skipEndFraction"),
     useCurrentStart: document.getElementById("useCurrentStart"),
     useCurrentEnd: document.getElementById("useCurrentEnd"),
-    calcStartMinutes: document.getElementById("calcStartMinutes"),
-    calcStartSeconds: document.getElementById("calcStartSeconds"),
-    calcEndMinutes: document.getElementById("calcEndMinutes"),
-    calcEndSeconds: document.getElementById("calcEndSeconds"),
-    calculateDuration: document.getElementById("calculateDuration"),
-    calculationResult: document.getElementById("calculationResult"),
     copySkipSettings: document.getElementById("copySkipSettings"),
     pasteSkipSettings: document.getElementById("pasteSkipSettings"),
     save: document.getElementById("save"),
@@ -46,6 +47,7 @@
   let hasCopiedSkipSettings = false;
   let editorState = null;
   let pendingDeleteId = null;
+  const timeDraft = { skipStart: 0, skipEnd: 0 };
 
   const operationLabels = Object.freeze({
     [UrlFixers.OPERATION.TRUNCATE_AFTER]: "Відкинути все після",
@@ -65,27 +67,39 @@
     elements.status.classList.toggle("error", isError);
   }
 
+  function setPopupState(state, errorMessage = "") {
+    const ready = state === "ready";
+    elements.popupContent.inert = !ready;
+    elements.popupContent.setAttribute("aria-busy", String(state === "loading"));
+    elements.popupOverlay.hidden = ready;
+    elements.popupSpinner.hidden = state !== "loading";
+    elements.popupOverlayMessage.textContent = state === "error"
+      ? `Не вдалося завантажити URL. ${errorMessage}`
+      : "Завантаження URL…";
+  }
+
   function updateFixerActionStates() {
     const rulesUnavailable =
-      urlFixerSettings.rules.length === 0 ||
+      busy || !contextReady || urlFixerSettings.rules.length === 0 ||
       editorState !== null ||
       pendingDeleteId !== null;
     elements.enableAllFixers.disabled = rulesUnavailable;
     elements.disableAllFixers.disabled = rulesUnavailable;
     elements.addUrlFixer.disabled =
-      editorState !== null ||
+      busy || !contextReady || editorState !== null ||
       pendingDeleteId !== null ||
       urlFixerSettings.rules.length >= UrlFixers.MAX_RULES;
   }
 
   function setBusy(nextBusy) {
     busy = nextBusy;
-    elements.enabled.disabled = busy;
-    elements.skipStart.disabled = busy;
-    elements.skipEnd.disabled = busy;
-    elements.useCurrentStart.disabled = busy;
-    elements.useCurrentEnd.disabled = busy;
-    elements.save.disabled = busy;
+    const unavailable = busy || !contextReady;
+    elements.enabled.disabled = unavailable;
+    elements.skipStart.disabled = unavailable;
+    elements.skipEnd.disabled = unavailable;
+    elements.useCurrentStart.disabled = unavailable;
+    elements.useCurrentEnd.disabled = unavailable;
+    elements.save.disabled = unavailable;
     elements.copySkipSettings.disabled = busy || !contextReady;
     elements.pasteSkipSettings.disabled = busy || !contextReady || !hasCopiedSkipSettings;
     elements.pasteSkipSettings.title = hasCopiedSkipSettings
@@ -95,24 +109,35 @@
     updateFixerActionStates();
   }
 
-  function readSeconds(input) {
-    const value = Number(input.value);
-    return Number.isFinite(value) && value >= 0 ? value : 0;
-  }
-
   function readProfile() {
     return {
       enabled: elements.enabled.checked,
-      skipStart: readSeconds(elements.skipStart),
-      skipEnd: readSeconds(elements.skipEnd)
+      skipStart: timeDraft.skipStart,
+      skipEnd: timeDraft.skipEnd
     };
+  }
+
+  function renderTimeField(key, seconds) {
+    const safeSeconds = Time.isFiniteMediaTime(seconds) && seconds >= 0 ? seconds : 0;
+    timeDraft[key] = safeSeconds;
+    elements[key].value = Time.formatTimeInput(safeSeconds);
+    const fraction = Math.min(0.999, Time.getFractionalSeconds(safeSeconds));
+    elements[`${key}Fraction`].textContent = `.${String(Math.floor((fraction + 1e-9) * 1000)).padStart(3, "0")}`;
+    elements[key].title = elements[key].value || `${safeSeconds} с (понад 24 години)`;
+  }
+
+  function acceptTimeEdit(key) {
+    const parsed = Time.parseTimeInput(elements[key].value);
+    timeDraft[key] = parsed === null ? 0 : parsed;
+    elements[`${key}Fraction`].textContent = ".000";
+    elements[key].title = elements[key].value;
   }
 
   function renderProfile(profile) {
     const safe = profile || DEFAULT_PROFILE;
     elements.enabled.checked = safe.enabled === true;
-    elements.skipStart.value = Math.max(0, Number(safe.skipStart) || 0);
-    elements.skipEnd.value = Math.max(0, Number(safe.skipEnd) || 0);
+    renderTimeField("skipStart", safe.skipStart);
+    renderTimeField("skipEnd", safe.skipEnd);
   }
 
   function applyContext(context, includeFixerSettings = false) {
@@ -129,6 +154,9 @@
   }
 
   async function sendMessage(message) {
+    if (Object.hasOwn(message, "tabId") && !Number.isInteger(message.tabId)) {
+      throw new Error("Контекст вкладки недоступний.");
+    }
     const response = await chrome.runtime.sendMessage(message);
     if (!response || !response.ok) {
       throw new Error(response && response.error ? response.error : "Операція не виконана.");
@@ -576,16 +604,29 @@
   }
 
   async function loadContext() {
+    setPopupState("loading");
     setBusy(true);
     setStatus("");
 
     try {
-      const [tab] = await chrome.tabs.query({
+      const currentWindowTabs = await chrome.tabs.query({
         active: true,
         currentWindow: true
       });
+      let tab = currentWindowTabs.find((candidate) =>
+        Number.isInteger(candidate.id) && typeof candidate.url === "string" && candidate.url.length > 0
+      );
+      if (!tab) {
+        const focusedWindowTabs = await chrome.tabs.query({
+          active: true,
+          lastFocusedWindow: true
+        });
+        tab = focusedWindowTabs.find((candidate) =>
+          Number.isInteger(candidate.id) && typeof candidate.url === "string" && candidate.url.length > 0
+        );
+      }
       if (!tab || !Number.isInteger(tab.id) || !tab.url) {
-        throw new Error("Активну вкладку не знайдено.");
+        throw new Error("Немає доступної активної вкладки. Відкрийте звичайну сторінку HTTP або HTTPS.");
       }
 
       tabId = tab.id;
@@ -595,13 +636,18 @@
         tabId
       });
       applyContext(context, true);
-      contextReady = true;
       await refreshCopiedSkipSettingsState();
+      contextReady = true;
+      setPopupState("ready");
       setStatus(context.exists ? "Профіль URL завантажено." : "Новий ключ: стандартно вимкнено.");
     } catch (error) {
+      contextReady = false;
+      tabId = null;
+      topUrl = null;
       renderProfile(DEFAULT_PROFILE);
       elements.pageUrl.textContent = "URL недоступний";
       setStatus(error.message, true);
+      setPopupState("error", error.message);
     } finally {
       initializing = false;
       setBusy(!contextReady);
@@ -650,6 +696,10 @@
   }
 
   elements.save.addEventListener("click", () => saveProfile());
+  for (const key of ["skipStart", "skipEnd"]) {
+    elements[key].addEventListener("input", () => acceptTimeEdit(key));
+    elements[key].addEventListener("change", () => acceptTimeEdit(key));
+  }
   elements.enabled.addEventListener("change", () => {
     saveProfile(elements.enabled.checked
       ? "OpEndSkipper увімкнено для цього URL."
@@ -704,7 +754,7 @@
   elements.useCurrentStart.addEventListener("click", async () => {
     try {
       const video = await getVideoState();
-      elements.skipStart.value = Math.max(0, Math.floor(video.currentTime));
+      renderTimeField("skipStart", video.currentTime);
       setStatus("Початок взято з активного відео. Натисніть «Зберегти».");
     } catch (error) {
       setStatus(error.message, true);
@@ -714,22 +764,14 @@
   elements.useCurrentEnd.addEventListener("click", async () => {
     try {
       const video = await getVideoState();
-      if (!Number.isFinite(video.duration)) {
+      if (!Time.isFiniteMediaTime(video.duration)) {
         throw new Error("Тривалість активного відео ще невідома.");
       }
-      elements.skipEnd.value = Math.max(0, Math.floor(video.duration - video.currentTime));
+      renderTimeField("skipEnd", Math.max(0, video.duration - video.currentTime));
       setStatus("Залишок взято з активного відео. Натисніть «Зберегти».");
     } catch (error) {
       setStatus(error.message, true);
     }
-  });
-
-  elements.calculateDuration.addEventListener("click", () => {
-    const start = readSeconds(elements.calcStartMinutes) * 60 +
-      readSeconds(elements.calcStartSeconds);
-    const end = readSeconds(elements.calcEndMinutes) * 60 +
-      readSeconds(elements.calcEndSeconds);
-    elements.calculationResult.textContent = `Різниця: ${end - start} с`;
   });
 
   elements.enableAllFixers.addEventListener("click", () => setAllRules(true));

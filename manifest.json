@@ -25,6 +25,8 @@
       "run_at": "document_idle",
       "js": [
         "src/shared/constants.js",
+        "src/shared/time.js",
+        "src/content/range-executor.js",
         "src/content/video-skipper.js"
       ]
     }
