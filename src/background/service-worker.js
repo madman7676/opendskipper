@@ -1,5 +1,7 @@
 importScripts(
   "../shared/constants.js",
+  "../shared/string-transforms.js",
+  "../shared/episode-detector.js",
   "../shared/time.js",
   "../shared/advanced.js",
   "../shared/url-fixers.js",
@@ -10,6 +12,7 @@ importScripts(
 const {
   ADVANCED_PROFILE_PREFIX,
   AdvancedStorage,
+  EpisodeDetector,
   MESSAGE,
   PROFILE_KEY_PREFIX,
   Profiles,
@@ -18,6 +21,43 @@ const {
 } = globalThis.OpenDSkipper;
 
 const videoStateCollections = new Map();
+const episodeSourcesByTab = new Map();
+const episodeSourceCollections = new Map();
+const episodeSourceRefreshes = new Map();
+const runtimeEpisodes = new Map();
+
+function rememberEpisodeSources(tabId, frameId, candidates) {
+  if (!episodeSourcesByTab.has(tabId)) episodeSourcesByTab.set(tabId, new Map());
+  episodeSourcesByTab.get(tabId).set(frameId, Array.isArray(candidates) ? candidates : []);
+}
+
+function episodeCandidates(tabId) {
+  const candidates = Array.from(episodeSourcesByTab.get(tabId)?.entries() || [])
+    .flatMap(([frameId, candidates]) => candidates.map((candidate) => ({ ...candidate, frameId })))
+    .filter((candidate) => EpisodeDetector.SOURCES.includes(candidate.source) &&
+      typeof candidate.value === "string" && candidate.value.length > 0)
+    .sort((left, right) => Number(right.isPlaying) - Number(left.isPlaying) ||
+      left.frameId - right.frameId);
+  return candidates.some((candidate) => candidate.source === "frame-url") ? candidates : [];
+}
+
+async function collectEpisodeSources(tabId) {
+  if (episodeSourceRefreshes.has(tabId)) return episodeSourceRefreshes.get(tabId);
+  const requestId = crypto.randomUUID();
+  episodeSourcesByTab.set(tabId, new Map());
+  const refresh = new Promise((resolve) => {
+    episodeSourceCollections.set(requestId, { tabId, resolve });
+    chrome.tabs.sendMessage(tabId, { type: MESSAGE.REQUEST_EPISODE_SOURCES, requestId })
+      .catch(() => {});
+    setTimeout(() => {
+      episodeSourceCollections.delete(requestId);
+      resolve(episodeCandidates(tabId));
+    }, 250);
+  });
+  episodeSourceRefreshes.set(tabId, refresh);
+  refresh.finally(() => episodeSourceRefreshes.delete(tabId));
+  return refresh;
+}
 
 async function getTabContext(tabId, includeFixerSettings = false) {
   if (!Number.isInteger(tabId)) {
@@ -34,7 +74,25 @@ async function getTabContext(tabId, includeFixerSettings = false) {
 
   const resolution = await UrlFixers.resolveProfileKey(topFrame.url);
   const loaded = await Profiles.loadProfile(resolution.profileKey);
-  const advanced = await AdvancedStorage.loadContext(resolution.profileKey);
+  const detectorSettings = await AdvancedStorage.loadContext(resolution.profileKey);
+  const latestTopFrame = await chrome.webNavigation.getFrame({ tabId, frameId: 0 });
+  if (latestTopFrame?.url !== topFrame.url) {
+    return getTabContext(tabId, includeFixerSettings);
+  }
+  const previous = runtimeEpisodes.get(tabId);
+  const detectorSignature = JSON.stringify(detectorSettings.episodeDetector);
+  const contextChanged = !detectorSettings.episodeDetector || Boolean(previous &&
+    (previous.profileKey !== resolution.profileKey ||
+      previous.detectorSignature !== detectorSignature));
+  const detected = EpisodeDetector.detectEpisode(detectorSettings.episodeDetector, {
+    topUrl: topFrame.url,
+    candidates: episodeCandidates(tabId)
+  });
+  const transition = EpisodeDetector.transition(previous?.id || null, detected, contextChanged);
+  runtimeEpisodes.set(tabId, {
+    profileKey: resolution.profileKey, detectorSignature, id: transition.id
+  });
+  const advanced = await AdvancedStorage.loadContext(resolution.profileKey, transition.id);
   const context = {
     tabId,
     topUrl: topFrame.url,
@@ -44,6 +102,8 @@ async function getTabContext(tabId, includeFixerSettings = false) {
     profile: loaded.profile,
     advanced
   };
+
+  context.episodeCandidates = episodeCandidates(tabId);
 
   if (includeFixerSettings) {
     context.urlFixerSettings = resolution.settings;
@@ -61,14 +121,14 @@ async function getSenderContext(sender) {
 
 async function broadcastProfile(tabId, topUrl, profileKey, profile, urlFixerWarning = null) {
   try {
-    const advanced = await AdvancedStorage.loadContext(profileKey);
+    const context = await getTabContext(tabId);
     await chrome.tabs.sendMessage(tabId, {
       type: MESSAGE.PROFILE_UPDATED,
-      topUrl,
-      profileKey,
-      urlFixerWarning,
-      profile,
-      advanced
+      topUrl: context.topUrl,
+      profileKey: context.profileKey,
+      urlFixerWarning: context.urlFixerWarning,
+      profile: context.profile,
+      advanced: context.advanced
     });
   } catch (error) {
     // Вкладка може ще не мати content script або вже завершувати навігацію.
@@ -136,10 +196,15 @@ async function handleMessage(message, sender) {
       return getSenderContext(sender);
 
     case MESSAGE.GET_POPUP_CONTEXT:
+      await collectEpisodeSources(message.tabId);
+      return getTabContext(message.tabId, true);
+
+    case MESSAGE.COLLECT_EPISODE_SOURCES:
+      await collectEpisodeSources(message.tabId);
       return getTabContext(message.tabId, true);
 
     case MESSAGE.SET_ADVANCED_MODE:
-    case MESSAGE.SET_ADVANCED_EPISODE:
+    case MESSAGE.SET_EPISODE_DETECTOR:
     case MESSAGE.SAVE_ADVANCED_RANGES: {
       const current = await getTabContext(message.tabId, true);
       if (message.expectedUrl && message.expectedUrl !== current.topUrl) {
@@ -147,9 +212,13 @@ async function handleMessage(message, sender) {
       }
       if (message.type === MESSAGE.SET_ADVANCED_MODE) {
         await AdvancedStorage.setMode(current.profileKey, message.mode);
-      } else if (message.type === MESSAGE.SET_ADVANCED_EPISODE) {
-        await AdvancedStorage.setEpisode(current.profileKey, message.episodeId);
+      } else if (message.type === MESSAGE.SET_EPISODE_DETECTOR) {
+        await AdvancedStorage.setDetector(current.profileKey, message.detector);
+        runtimeEpisodes.delete(message.tabId);
       } else {
+        if (!current.advanced.currentEpisode || current.advanced.currentEpisode !== message.episodeId) {
+          throw new Error("Поточний Episode ID змінився. Оновіть налаштування.");
+        }
         await AdvancedStorage.saveRanges(
           current.profileKey, message.episodeId, message.ranges
         );
@@ -167,8 +236,9 @@ async function handleMessage(message, sender) {
       if (message.expectedUrl && message.expectedUrl !== context.topUrl) {
         throw new Error("URL вкладки змінився. Відкрийте popup ще раз.");
       }
+      if (!context.advanced.currentEpisode) throw new Error("Episode ID не визначено.");
       return {
-        timingKeys: await AdvancedStorage.copyRanges(context.profileKey, message.selectedKey ?? null)
+        timingKeys: await AdvancedStorage.copyRanges(context.profileKey, context.advanced.currentEpisode)
       };
     }
 
@@ -265,6 +335,31 @@ async function handleMessage(message, sender) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message && (message.type === MESSAGE.REPORT_EPISODE_SOURCES ||
+      message.type === MESSAGE.EPISODE_SOURCES_CHANGED)) {
+    if (sender.tab && Number.isInteger(sender.tab.id) && Number.isInteger(sender.frameId)) {
+      const tabId = sender.tab.id;
+      const before = runtimeEpisodes.get(tabId)?.id || null;
+      rememberEpisodeSources(tabId, sender.frameId, message.candidates);
+      if (message.type === MESSAGE.EPISODE_SOURCES_CHANGED ||
+          !episodeSourceCollections.has(message.requestId)) {
+        const refresh = message.type === MESSAGE.EPISODE_SOURCES_CHANGED
+          ? collectEpisodeSources(tabId) : Promise.resolve();
+        refresh.then(() => getTabContext(tabId)).then((context) => {
+          if (context.advanced.currentEpisode !== before) {
+            return broadcastProfile(tabId, context.topUrl, context.profileKey, context.profile);
+          }
+        }).then(() => chrome.runtime.sendMessage({ type: MESSAGE.EPISODE_UPDATED, tabId }))
+          .catch(() => {});
+      }
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (message && message.type === MESSAGE.EPISODE_UPDATED) {
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message && message.type === MESSAGE.REPORT_VIDEO_STATE) {
     const collection = videoStateCollections.get(message.requestId);
     if (
@@ -301,16 +396,35 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 
   refreshTabProfile(tabId);
+  chrome.runtime.sendMessage({ type: MESSAGE.EPISODE_UPDATED, tabId }).catch(() => {});
 });
 
 function handleSameDocumentNavigation(details) {
   if (details.frameId === 0 && details.url) {
     refreshTabProfile(details.tabId);
+    chrome.runtime.sendMessage({ type: MESSAGE.EPISODE_UPDATED, tabId: details.tabId }).catch(() => {});
+  } else if (details.url) {
+    collectEpisodeSources(details.tabId).then(() => {
+      refreshTabProfile(details.tabId);
+      return chrome.runtime.sendMessage({ type: MESSAGE.EPISODE_UPDATED, tabId: details.tabId });
+    }).catch(() => {});
   }
 }
 
 chrome.webNavigation.onHistoryStateUpdated.addListener(handleSameDocumentNavigation);
 chrome.webNavigation.onReferenceFragmentUpdated.addListener(handleSameDocumentNavigation);
+chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId === 0) {
+    runtimeEpisodes.delete(details.tabId);
+    episodeSourcesByTab.delete(details.tabId);
+  } else {
+    episodeSourcesByTab.get(details.tabId)?.delete(details.frameId);
+  }
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  runtimeEpisodes.delete(tabId);
+  episodeSourcesByTab.delete(tabId);
+});
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local") {

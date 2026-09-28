@@ -263,7 +263,7 @@ label {
 .toast-layer {
   position: fixed;
   z-index: 3;
-  top: 10px;
+  bottom: 10px;
   right: 10px;
   left: 10px;
   display: flex;
@@ -315,20 +315,28 @@ label {
 
 [hidden] { display: none !important; }
 
-.episode-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
+.episode-current {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
 }
-
-.episode-row label { margin: 0; }
-.episode-row input {
-  min-width: 0;
-  padding: 4px 6px;
-  background: Field;
-  color: FieldText;
-}
+.episode-current strong { overflow-wrap: anywhere; text-align: right; }
+.episode-detector { margin-top: 3px; padding: 7px; border: 1px solid ButtonBorder; border-radius: 6px; }
+.episode-detector > summary { margin: 0; font-weight: 600; }
+.episode-detector label { margin: 8px 0 3px; font-size: 11px; }
+.episode-detector select { width: 100%; min-width: 0; background: Field; color: FieldText; }
+.detector-hint { margin: 7px 0; color: GrayText; font-size: 11px; }
+.detector-candidates { max-height: 90px; overflow-y: auto; margin: 6px 0; padding-left: 16px; font-size: 10px; }
+.detector-candidates li { overflow-wrap: anywhere; }
+.detector-raw { display: block; max-height: 44px; overflow: auto; overflow-wrap: anywhere; font-size: 10px; }
+.detector-transforms { display: grid; gap: 5px; margin: 8px 0; }
+.detector-transform { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px; padding: 5px; border: 1px solid ButtonBorder; border-radius: 5px; }
+.detector-transform select, .detector-transform input { min-width: 0; width: 100%; font-size: 11px; }
+.detector-transform-fields { display: grid; gap: 3px; }
+.detector-preview { display: grid; gap: 3px; margin-top: 7px; font-size: 10px; overflow-wrap: anywhere; }
+.detector-preview code { color: GrayText; }
 
 .advanced-heading {
   margin: 16px 0 7px;

@@ -22,7 +22,12 @@
     REQUEST_VIDEO_STATE: "video:request-state",
     REPORT_VIDEO_STATE: "video:report-state",
     SET_ADVANCED_MODE: "advanced:set-mode",
-    SET_ADVANCED_EPISODE: "advanced:set-episode",
+    SET_EPISODE_DETECTOR: "advanced:set-detector",
+    COLLECT_EPISODE_SOURCES: "episode:collect-sources",
+    REQUEST_EPISODE_SOURCES: "episode:request-sources",
+    REPORT_EPISODE_SOURCES: "episode:report-sources",
+    EPISODE_SOURCES_CHANGED: "episode:sources-changed",
+    EPISODE_UPDATED: "episode:updated",
     SAVE_ADVANCED_RANGES: "advanced:save-ranges",
     COPY_ADVANCED_RANGES: "advanced:copy-ranges",
     GET_ADVANCED_CLIPBOARD: "advanced:get-clipboard"

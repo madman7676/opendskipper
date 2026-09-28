@@ -30,6 +30,39 @@
         </label>
       </div>
 
+      <section id="advancedDetectorSection" aria-label="Advanced Episode detector" hidden>
+        <div class="episode-current">
+          <span>Поточний епізод:</span>
+          <strong id="advancedCurrentEpisode">Не визначено</strong>
+        </div>
+        <details id="advancedDetector" class="episode-detector" open>
+          <summary id="advancedDetectorSummary">Episode detector</summary>
+          <label for="detectorType">Джерело Episode ID</label>
+          <select id="detectorType">
+            <option value="">Не налаштовано</option>
+            <option value="player-url">Player URL</option>
+            <option value="top-url">Top-level URL</option>
+          </select>
+          <div id="detectorPlayerFields" hidden>
+            <p class="detector-hint">Запусти відео, щоб обрати джерело.</p>
+            <label for="detectorSource">Selected source</label>
+            <select id="detectorSource"></select>
+            <ul id="detectorCandidates" class="detector-candidates"></ul>
+          </div>
+          <div id="detectorTopFields" hidden>
+            <span class="service-label">Raw top-level URL</span>
+            <code id="detectorTopUrl" class="detector-raw"></code>
+          </div>
+          <div id="detectorTransforms" class="detector-transforms"></div>
+          <button id="addDetectorTransform" type="button" class="secondary compact">+ Transform</button>
+          <div class="detector-preview">
+            <span>Selected source: <code id="detectorSelectedSource">—</code></span>
+            <span>Raw source: <code id="detectorRawSource">—</code></span>
+            <span>Поточний Episode ID: <strong id="detectorEpisodePreview">Не визначено</strong></span>
+          </div>
+        </details>
+      </section>
+
       <section id="mainSettings" class="main-settings" aria-label="Налаштування пропусків">
         <div id="mainSettingsContent">
           <section id="easySection" aria-label="Easy Mode">
@@ -73,11 +106,7 @@
           </section>
 
           <section id="advancedSection" aria-label="Advanced Mode" hidden>
-            <div class="episode-row">
-              <label for="advancedEpisode">Серія</label>
-              <input id="advancedEpisode" type="text" maxlength="80" value="1">
-              <button id="selectAdvancedEpisode" type="button" class="secondary compact">Відкрити</button>
-            </div>
+
             <div class="saved-ranges">
               <p class="advanced-heading">Діапазони поточної серії</p>
               <ol id="advancedRangeList" class="advanced-range-list"></ol>
@@ -167,6 +196,8 @@
     </div>
 
     <script src="../shared/constants.js"></script>
+    <script src="../shared/string-transforms.js"></script>
+    <script src="../shared/episode-detector.js"></script>
     <script src="../shared/time.js"></script>
     <script src="../shared/advanced.js"></script>
     <script src="../shared/url-fixers.js"></script>

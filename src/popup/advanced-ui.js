@@ -1,8 +1,9 @@
 (function initializeAdvancedUi(root) {
   "use strict";
 
-  const { Advanced, MESSAGE, Time, TimeField } = root.OpenDSkipper;
+  const { Advanced, EpisodeDetector, MESSAGE, StringTransforms, Time, TimeField } = root.OpenDSkipper;
   const TEMPLATES_OPEN_KEY = "popupTemplatesOpen:v1";
+  const DETECTOR_OPEN_KEY = "popupEpisodeDetectorOpen:v1";
   const EDIT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>';
   const DELETE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7"/></svg>';
 
@@ -11,12 +12,16 @@
     applyContext, onClipboardChanged = async () => {}
   }) {
     const ids = [
-      "advancedSection", "advancedEpisode", "selectAdvancedEpisode", "advancedRangeList",
+      "advancedSection", "advancedCurrentEpisode", "detectorType", "detectorPlayerFields",
+      "detectorSource", "detectorCandidates", "detectorTopFields", "detectorTopUrl",
+      "detectorTransforms", "addDetectorTransform", "detectorSelectedSource",
+      "detectorRawSource", "detectorEpisodePreview", "advancedRangeList",
       "addAdvancedRange", "advancedEditor", "advancedEditorTitle", "advancedStart",
       "advancedStartFraction", "advancedEnd", "advancedEndFraction",
       "advancedCurrentStart", "advancedCurrentEnd", "quickZeroCurrent",
       "quickZeroNinety", "quickCurrentNinety", "quickCurrentEnd",
       "advancedTemplates", "advancedTemplatesSummary",
+      "advancedDetector", "advancedDetectorSummary",
       "cancelAdvancedEdit", "applyAdvancedEdit", "copyAdvancedRanges",
       "pasteAdvancedRanges", "cancelAdvancedRanges", "saveAdvancedRanges"
     ];
@@ -25,30 +30,56 @@
     const endField = TimeField.create(el.advancedEnd, el.advancedEndFraction);
     let saved = [];
     let draft = [];
-    let episodeId = "1";
+    let episodeId = null;
     let profileKey = null;
+    let detectorDraft = null;
+    let detectorContext = null;
+    let detectorEditPending = false;
+    let detectorTimer = null;
+    let detectorRevision = 0;
+    let detectorSaveChain = Promise.resolve();
     let editIndex = null;
     let dirty = false;
-    let templatesTouched = false;
-    let templatesPreferenceLoaded = false;
+    let detectorConfigured = false;
 
-    el.advancedTemplatesSummary.addEventListener("click", () => { templatesTouched = true; });
-    el.advancedTemplatesSummary.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") templatesTouched = true;
-    });
-    chrome.storage.local.get(TEMPLATES_OPEN_KEY).then((stored) => {
-      templatesPreferenceLoaded = true;
-      if (!templatesTouched) {
-        el.advancedTemplates.open = stored[TEMPLATES_OPEN_KEY] !== false;
-      } else {
-        chrome.storage.local.set({ [TEMPLATES_OPEN_KEY]: el.advancedTemplates.open }).catch(() => {});
-      }
-    }).catch(() => { templatesPreferenceLoaded = true; });
-    el.advancedTemplates.addEventListener("toggle", () => {
-      if (templatesPreferenceLoaded) {
-        chrome.storage.local.set({ [TEMPLATES_OPEN_KEY]: el.advancedTemplates.open }).catch(() => {});
-      }
-    });
+    function bindOpenPreference(details, summary, key, forceOpen = () => false, saveAnyToggle = false) {
+      let touched = false;
+      let loaded = false;
+      let preferredOpen = true;
+      const refresh = () => { details.open = forceOpen() || preferredOpen; };
+      summary.addEventListener("click", () => { touched = true; });
+      summary.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") touched = true;
+      });
+      chrome.storage.local.get(key).then((stored) => {
+        loaded = true;
+        if (!touched) {
+          preferredOpen = stored[key] !== false;
+          refresh();
+        } else if (!forceOpen()) {
+          preferredOpen = details.open;
+          chrome.storage.local.set({ [key]: preferredOpen }).catch(() => {});
+        }
+      }).catch(() => { loaded = true; });
+      details.addEventListener("toggle", () => {
+        if (forceOpen()) {
+          touched = false;
+          refresh();
+        } else if (loaded && (touched || saveAnyToggle)) {
+          touched = false;
+          preferredOpen = details.open;
+          chrome.storage.local.set({ [key]: preferredOpen }).catch(() => {});
+        }
+      });
+      return refresh;
+    }
+
+    bindOpenPreference(el.advancedTemplates, el.advancedTemplatesSummary, TEMPLATES_OPEN_KEY,
+      () => false, true);
+    const refreshDetectorOpen = bindOpenPreference(
+      el.advancedDetector, el.advancedDetectorSummary, DETECTOR_OPEN_KEY,
+      () => !detectorConfigured
+    );
 
     function cloneRanges(ranges) {
       return ranges.map(({ key, start, end }) => ({ key, start, end }));
@@ -94,12 +125,21 @@
         row.append(actions);
         el.advancedRangeList.append(row);
       }
-      el.saveAdvancedRanges.disabled = !dirty;
-      el.cancelAdvancedRanges.disabled = !dirty;
+      el.saveAdvancedRanges.disabled = !episodeId || !dirty;
+      el.cancelAdvancedRanges.disabled = !episodeId || !dirty;
+      el.addAdvancedRange.disabled = !episodeId;
+      el.copyAdvancedRanges.disabled = !episodeId;
+      el.pasteAdvancedRanges.disabled = !episodeId;
     }
 
     function render(context, reset = false) {
-      const advanced = context.advanced || { mode: "easy", currentEpisode: "1", ranges: [] };
+      const advanced = context.advanced || { mode: "easy", currentEpisode: null, ranges: [] };
+      if (!detectorEditPending || context.profileKey !== profileKey) {
+        detectorDraft = EpisodeDetector.normalizeConfig(advanced.episodeDetector);
+      }
+      detectorConfigured = Boolean(EpisodeDetector.normalizeConfig(advanced.episodeDetector));
+      refreshDetectorOpen();
+      detectorContext = context;
       if (reset || context.profileKey !== profileKey || advanced.currentEpisode !== episodeId) {
         profileKey = context.profileKey;
         episodeId = advanced.currentEpisode;
@@ -108,8 +148,145 @@
         dirty = false;
         closeEditor();
       }
-      el.advancedEpisode.value = episodeId;
+      el.advancedCurrentEpisode.textContent = episodeId || "Не визначено";
+      renderDetector();
       renderList();
+    }
+
+    function selectedRaw() {
+      if (!detectorDraft) return null;
+      if (detectorDraft.type === "top-url") return detectorContext.topUrl;
+      return detectorContext.episodeCandidates?.find((candidate) =>
+        candidate.source === detectorDraft.source)?.value || null;
+    }
+
+    function renderDetectorPreview() {
+      const detected = EpisodeDetector.detectEpisode(detectorDraft, {
+        topUrl: detectorContext.topUrl,
+        candidates: detectorContext.episodeCandidates || []
+      });
+      const source = detectorDraft
+        ? (detectorDraft.type === "player-url" ? detectorDraft.source : "top-url") : null;
+      el.detectorSelectedSource.textContent = source || "—";
+      el.detectorRawSource.textContent = selectedRaw() || "Недоступне";
+      el.detectorEpisodePreview.textContent = detected?.id || "Не визначено";
+    }
+
+    async function saveDetector() {
+      detectorTimer = null;
+      const revision = detectorRevision;
+      const value = EpisodeDetector.normalizeConfig(detectorDraft);
+      if (detectorDraft && !value) return;
+      try {
+        detectorSaveChain = detectorSaveChain.catch(() => {}).then(() =>
+          sendMessage(getMessage(MESSAGE.SET_EPISODE_DETECTOR, { detector: value }))
+        );
+        const context = await detectorSaveChain;
+        if (revision !== detectorRevision) return;
+        detectorEditPending = false;
+        applyContext(context, false);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function queueDetectorSave(delay = 0) {
+      detectorEditPending = true;
+      detectorRevision++;
+      if (detectorTimer !== null) clearTimeout(detectorTimer);
+      detectorTimer = setTimeout(saveDetector, delay);
+      renderDetectorPreview();
+    }
+
+    function makeOption(value, label) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      return option;
+    }
+
+    function renderDetector() {
+      el.detectorType.value = detectorDraft?.type || "";
+      el.detectorPlayerFields.hidden = detectorDraft?.type !== "player-url";
+      el.detectorTopFields.hidden = detectorDraft?.type !== "top-url";
+      el.detectorTopUrl.textContent = detectorContext.topUrl || "—";
+      const candidates = detectorContext.episodeCandidates || [];
+      el.detectorCandidates.replaceChildren();
+      for (const candidate of candidates) {
+        const item = document.createElement("li");
+        item.textContent = `${candidate.source}: ${candidate.value}`;
+        el.detectorCandidates.append(item);
+      }
+      if (!candidates.length) {
+        const item = document.createElement("li");
+        item.textContent = "Джерел поки немає.";
+        el.detectorCandidates.append(item);
+      }
+      el.detectorSource.replaceChildren(makeOption("", "Оберіть source type"));
+      const sources = [...new Set(candidates.map((candidate) => candidate.source))];
+      if (detectorDraft?.source && !sources.includes(detectorDraft.source)) {
+        el.detectorSource.append(makeOption(detectorDraft.source, `${detectorDraft.source} (недоступне)`));
+      }
+      for (const source of sources) {
+        const candidate = candidates.find((item) => item.source === source);
+        el.detectorSource.append(makeOption(source, `${source}: ${candidate.value}`));
+      }
+      el.detectorSource.value = detectorDraft?.source || "";
+      el.detectorSource.disabled = sources.length === 0;
+      el.detectorTransforms.replaceChildren();
+      for (const [index, step] of (detectorDraft?.transforms || []).entries()) {
+        const row = document.createElement("div");
+        row.className = "detector-transform";
+        const fields = document.createElement("div");
+        fields.className = "detector-transform-fields";
+        const type = document.createElement("select");
+        for (const [key, label] of [
+          ["truncateAfter", "Відкинути після"], ["truncateAfterLast", "Відкинути після останнього"],
+          ["removeExact", "Видалити точний текст"], ["replaceExact", "Замінити точний текст"],
+          ["takeAfterFirst", "Взяти після першого"], ["takeAfterLast", "Взяти після останнього"],
+          ["lastNonEmptyPart", "Остання непорожня частина"], ["queryParameter", "Query parameter"]
+        ]) type.append(makeOption(key, label));
+        type.value = step.type;
+        type.addEventListener("change", () => { step.type = type.value; queueDetectorSave(); renderDetector(); });
+        fields.append(type);
+        const value = document.createElement("input");
+        value.type = "text";
+        value.value = step.value;
+        value.placeholder = step.type === "queryParameter" ? "parameter" : "separator / text";
+        value.addEventListener("input", () => { step.value = value.value; queueDetectorSave(300); });
+        value.addEventListener("change", () => queueDetectorSave());
+        fields.append(value);
+        if (step.type === "removeExact" || step.type === "replaceExact") {
+          const position = document.createElement("select");
+          for (const key of ["anywhere", "start", "end"]) position.append(makeOption(key, key));
+          position.value = step.position || "anywhere";
+          position.addEventListener("change", () => { step.position = position.value; queueDetectorSave(); });
+          fields.append(position);
+        }
+        if (step.type === "replaceExact") {
+          const replacement = document.createElement("input");
+          replacement.type = "text";
+          replacement.placeholder = "Заміна";
+          replacement.value = step.replacement || "";
+          replacement.addEventListener("input", () => { step.replacement = replacement.value; queueDetectorSave(300); });
+          replacement.addEventListener("change", () => queueDetectorSave());
+          fields.append(replacement);
+        }
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "secondary compact";
+        remove.textContent = "×";
+        remove.title = "Видалити transform";
+        remove.setAttribute("aria-label", remove.title);
+        remove.addEventListener("click", () => {
+          detectorDraft.transforms.splice(index, 1);
+          queueDetectorSave(); renderDetector();
+        });
+        row.append(fields, remove);
+        el.detectorTransforms.append(row);
+      }
+      el.addDetectorTransform.disabled = !detectorDraft;
+      renderDetectorPreview();
     }
 
     function closeEditor() {
@@ -153,9 +330,7 @@
     async function copySaved() {
       setBusy(true);
       try {
-        await sendMessage(getMessage(MESSAGE.COPY_ADVANCED_RANGES, {
-          selectedKey: null
-        }));
+        await sendMessage(getMessage(MESSAGE.COPY_ADVANCED_RANGES));
         await onClipboardChanged();
         setStatus("Збережений набір скопійовано.");
       } catch (error) {
@@ -213,31 +388,23 @@
       startField.set(current); endField.set(video.duration);
     }));
 
-    el.selectAdvancedEpisode.addEventListener("click", async () => {
-      const next = el.advancedEpisode.value.trim();
-      if (!next || next.length > 80) {
-        setStatus("Введіть ідентифікатор серії (до 80 символів).", true);
-        return;
-      }
-      if (next === episodeId) return;
-      if (dirty && !confirm("Незбережені зміни серії буде скасовано. Відкрити іншу серію?")) {
-        el.advancedEpisode.value = episodeId;
-        return;
-      }
-      setBusy(true);
-      try {
-        const context = await sendMessage(getMessage(MESSAGE.SET_ADVANCED_EPISODE, { episodeId: next }));
-        applyContext(context, true);
-        setStatus(`Відкрито серію ${next}.`);
-      } catch (error) {
-        el.advancedEpisode.value = episodeId;
-        setStatus(error.message, true);
-      } finally {
-        setBusy(false);
-      }
+    el.detectorType.addEventListener("change", () => {
+      const type = el.detectorType.value;
+      detectorDraft = type === "top-url" ? { type, transforms: [] }
+        : type === "player-url" ? { type, source: "", transforms: [] } : null;
+      renderDetector();
+      queueDetectorSave();
     });
-    el.advancedEpisode.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") el.selectAdvancedEpisode.click();
+    el.detectorSource.addEventListener("change", () => {
+      detectorDraft.source = el.detectorSource.value;
+      queueDetectorSave();
+      renderDetector();
+    });
+    el.addDetectorTransform.addEventListener("click", () => {
+      if (!detectorDraft) return;
+      detectorDraft.transforms.push({ type: StringTransforms.TYPE.LAST_NON_EMPTY_PART, value: "/" });
+      queueDetectorSave();
+      renderDetector();
     });
 
     el.copyAdvancedRanges.addEventListener("click", () => copySaved());

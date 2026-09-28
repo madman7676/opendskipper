@@ -3,6 +3,7 @@
 
   const {
     DEFAULT_PROFILE,
+    EpisodeDetector,
     MESSAGE,
     RangeExecutor,
     Time
@@ -15,7 +16,8 @@
   let currentTopUrl = null;
   let currentProfileKey = null;
   let profile = { ...DEFAULT_PROFILE };
-  let advancedState = { mode: "easy", currentEpisode: "1", ranges: [] };
+  let advancedState = { mode: "easy", currentEpisode: null, ranges: [] };
+  let lastSourceSnapshot = "";
   const attachedVideos = new WeakSet();
   const videoStates = new WeakMap();
 
@@ -46,7 +48,7 @@
     return {
       mode: value && value.mode === "advanced" ? "advanced" : "easy",
       currentEpisode: value && typeof value.currentEpisode === "string"
-        ? value.currentEpisode : "1",
+        ? value.currentEpisode : null,
       ranges: value && Array.isArray(value.ranges) ? value.ranges : []
     };
   }
@@ -130,6 +132,7 @@
     }
 
     if (advancedState.mode === "advanced") {
+      if (!advancedState.currentEpisode) return;
       for (const range of advancedState.ranges) {
         if (RangeExecutor.executeRange(video, {
           id: `advanced:${advancedState.currentEpisode}:${range.key}`,
@@ -192,16 +195,22 @@
       lastActivity: 0
     });
 
-    video.addEventListener("timeupdate", () => handlePlayback(video));
+    video.addEventListener("timeupdate", () => {
+      const previousSource = videoStates.get(video)?.source;
+      handlePlayback(video);
+      if ((video.currentSrc || video.src || "") !== previousSource) publishEpisodeSources();
+    });
     video.addEventListener("playing", () => {
       const state = videoStates.get(video);
       if (state && state.playbackEnded && Time.readCurrentTime(video) < 0.5) {
         resetVideoState(video);
       }
       handlePlayback(video);
+      publishEpisodeSources();
     });
-    video.addEventListener("loadedmetadata", () => resetVideoState(video));
-    video.addEventListener("emptied", () => resetVideoState(video));
+    video.addEventListener("loadedmetadata", () => { resetVideoState(video); publishEpisodeSources(); });
+    video.addEventListener("loadstart", publishEpisodeSources);
+    video.addEventListener("emptied", () => { resetVideoState(video); publishEpisodeSources(); });
     video.addEventListener("ended", () => {
       const state = videoStates.get(video);
       if (state) {
@@ -223,6 +232,31 @@
       attachVideo(node);
     }
     node.querySelectorAll("video").forEach(attachVideo);
+  }
+
+  function getEpisodeSources() {
+    const videos = Array.from(document.querySelectorAll("video")).filter((video) =>
+      video.readyState > 0 || video.currentSrc || video.src || video.querySelector("source[src]")
+    );
+    const candidates = EpisodeDetector.collectCandidates({
+      frameUrl: location.href,
+      iframes: Array.from(document.querySelectorAll("iframe")),
+      videos: videos.map((video) => ({
+        currentSrc: video.currentSrc,
+        src: video.src,
+        sources: Array.from(video.querySelectorAll("source"))
+      }))
+    });
+    const isPlaying = videos.some((video) => !video.paused && !video.ended);
+    return candidates.map((candidate) => ({ ...candidate, isPlaying }));
+  }
+
+  function publishEpisodeSources() {
+    const candidates = getEpisodeSources();
+    const snapshot = JSON.stringify(candidates);
+    if (snapshot === lastSourceSnapshot) return;
+    lastSourceSnapshot = snapshot;
+    chrome.runtime.sendMessage({ type: MESSAGE.EPISODE_SOURCES_CHANGED, candidates }).catch(() => {});
   }
 
   function bestVideoState() {
@@ -267,6 +301,13 @@
         });
       }
     }
+    if (message && message.type === MESSAGE.REQUEST_EPISODE_SOURCES) {
+      chrome.runtime.sendMessage({
+        type: MESSAGE.REPORT_EPISODE_SOURCES,
+        requestId: message.requestId,
+        candidates: getEpisodeSources()
+      }).catch(() => {});
+    }
   });
 
   document.querySelectorAll("video").forEach(attachVideo);
@@ -275,15 +316,23 @@
     for (const mutation of mutations) {
       mutation.addedNodes.forEach(scanNode);
     }
+    publishEpisodeSources();
   });
   observer.observe(document.documentElement, {
     childList: true,
-    subtree: true
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["src"]
   });
 
+  publishEpisodeSources();
   requestProfile();
 
-  window.addEventListener("pageshow", requestProfile);
-  window.addEventListener("popstate", requestProfile);
-  window.addEventListener("hashchange", requestProfile);
+  function refreshPageContext() {
+    publishEpisodeSources();
+    requestProfile();
+  }
+  window.addEventListener("pageshow", refreshPageContext);
+  window.addEventListener("popstate", refreshPageContext);
+  window.addEventListener("hashchange", refreshPageContext);
 })();

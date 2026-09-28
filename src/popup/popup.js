@@ -20,6 +20,7 @@
     settingsOverlay: document.getElementById("settingsOverlay"),
     settingsOverlayMessage: document.getElementById("settingsOverlayMessage"),
     modeSwitch: document.getElementById("modeSwitch"),
+    advancedDetectorSection: document.getElementById("advancedDetectorSection"),
     easySection: document.getElementById("easySection"),
     advancedSection: document.getElementById("advancedSection"),
     enabled: document.getElementById("enabled"),
@@ -186,6 +187,7 @@
     currentMode = context.advanced && context.advanced.mode === "advanced" ? "advanced" : "easy";
     elements.easySection.hidden = currentMode !== "easy";
     elements.advancedSection.hidden = currentMode !== "advanced";
+    elements.advancedDetectorSection.hidden = currentMode !== "advanced";
     elements.modeSwitch.checked = currentMode === "advanced";
     advancedUi.render(context, resetAdvancedDraft);
 
@@ -775,6 +777,16 @@
     getTabContext: () => ({ tabId, topUrl }),
     applyContext: (context, reset) => applyContext(context, true, reset),
     onClipboardChanged: refreshCopiedSkipSettingsState
+  });
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || message.type !== MESSAGE.EPISODE_UPDATED ||
+        !contextReady || message.tabId !== tabId) return;
+    sendMessage({ type: MESSAGE.COLLECT_EPISODE_SOURCES, tabId })
+      .then((context) => {
+        applyContext(context, true);
+        renderPreview();
+      }).catch(() => {});
   });
 
   async function setMode(mode) {

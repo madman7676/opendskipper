@@ -59,8 +59,9 @@
     );
   }
 
-  function resolveEpisode(profile, timings, episodeId = profile.currentEpisode) {
-    const episode = profile.episodes && profile.episodes[episodeId];
+  function resolveEpisode(profile, timings, episodeId) {
+    const episode = episodeId && profile.episodes && Object.hasOwn(profile.episodes, episodeId)
+      ? profile.episodes[episodeId] : null;
     const keys = episode && Array.isArray(episode.ranges) ? episode.ranges : [];
     const seen = new Set();
     return sortRanges(keys.map((key) => {

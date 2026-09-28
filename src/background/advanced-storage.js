@@ -5,6 +5,7 @@
     ADVANCED_PROFILE_PREFIX,
     ADVANCED_TIMING_POOL_KEY,
     COPIED_SKIP_SETTINGS_KEY,
+    EpisodeDetector,
     PROFILE_KEY_PREFIX,
     Advanced,
     Profiles
@@ -19,11 +20,8 @@
   }
 
   function normalizeEpisodeId(value) {
-    const id = typeof value === "string" ? value.trim() : "";
-    if (!id || id.length > 80 || /[\x00-\x1f\x7f]/.test(id) ||
-        ["__proto__", "constructor", "prototype"].includes(id)) {
-      throw new Error("Введіть коректний ідентифікатор серії (до 80 символів).");
-    }
+    const id = EpisodeDetector.normalizeId(value);
+    if (!id) throw new Error("Episode ID не визначено.");
     return id;
   }
 
@@ -34,14 +32,12 @@
 
   function cleanProfile(value, profileKey) {
     if (!value || value.profileKey !== profileKey) {
-      return { profileKey, mode: "easy", currentEpisode: "1", episodes: {} };
+      return { profileKey, mode: "easy", episodeDetector: null, episodes: {} };
     }
     return {
       profileKey,
       mode: value.mode === "advanced" ? "advanced" : "easy",
-      currentEpisode: (() => {
-        try { return normalizeEpisodeId(value.currentEpisode); } catch { return "1"; }
-      })(),
+      episodeDetector: EpisodeDetector.normalizeConfig(value.episodeDetector),
       episodes: value.episodes && typeof value.episodes === "object" ? value.episodes : {}
     };
   }
@@ -50,19 +46,24 @@
     const key = await storageKey(profileKey);
     const stored = await chrome.storage.local.get([key, ADVANCED_TIMING_POOL_KEY]);
     const pool = stored[ADVANCED_TIMING_POOL_KEY];
+    const profile = cleanProfile(stored[key], profileKey);
+    if (stored[key] && Object.hasOwn(stored[key], "currentEpisode")) {
+      await chrome.storage.local.set({ [key]: profile });
+    }
     return {
       key,
-      profile: cleanProfile(stored[key], profileKey),
+      profile,
       timings: pool && pool.timings && typeof pool.timings === "object" ? pool.timings : {}
     };
   }
 
-  async function loadContext(profileKey) {
+  async function loadContext(profileKey, episodeId = null) {
     const { profile, timings } = await read(profileKey);
-    const ranges = Advanced.resolveEpisode(profile, timings);
+    const ranges = episodeId ? Advanced.resolveEpisode(profile, timings, episodeId) : [];
     return {
       mode: profile.mode,
-      currentEpisode: profile.currentEpisode,
+      episodeDetector: profile.episodeDetector,
+      currentEpisode: episodeId,
       timingKeys: ranges.map((range) => range.key),
       ranges
     };
@@ -78,11 +79,12 @@
     });
   }
 
-  function setEpisode(profileKey, episodeId) {
-    const currentEpisode = normalizeEpisodeId(episodeId);
+  function setDetector(profileKey, detector) {
+    const episodeDetector = EpisodeDetector.normalizeConfig(detector);
+    if (detector !== null && !episodeDetector) throw new Error("Некоректне налаштування Episode detector.");
     return serializeWrite(async () => {
       const { key, profile } = await read(profileKey);
-      await chrome.storage.local.set({ [key]: { ...profile, currentEpisode } });
+      await chrome.storage.local.set({ [key]: { ...profile, episodeDetector } });
     });
   }
 
@@ -93,9 +95,6 @@
     }
     return serializeWrite(async () => {
       const { key, profile, timings } = await read(profileKey);
-      if (profile.currentEpisode !== id) {
-        throw new Error("Поточна серія змінилася. Оновіть popup.");
-      }
       const resolved = [];
       const seen = new Set();
       for (const item of draftRanges) {
@@ -119,15 +118,10 @@
     });
   }
 
-  async function copyRanges(profileKey, selectedKey = null) {
+  async function copyRanges(profileKey, episodeId) {
     const { profile, timings } = await read(profileKey);
-    const ranges = Advanced.resolveEpisode(profile, timings);
-    const keys = selectedKey === null
-      ? ranges.map((range) => range.key)
-      : ranges.some((range) => range.key === selectedKey) ? [selectedKey] : null;
-    if (!keys) {
-      throw new Error("Спочатку збережіть діапазон цієї серії.");
-    }
+    const ranges = Advanced.resolveEpisode(profile, timings, normalizeEpisodeId(episodeId));
+    const keys = ranges.map((range) => range.key);
     await chrome.storage.local.set({
       [COPIED_SKIP_SETTINGS_KEY]: { type: "advanced-range-set", timingKeys: keys }
     });
@@ -162,7 +156,7 @@
     storageKey,
     loadContext,
     setMode,
-    setEpisode,
+    setDetector,
     saveRanges,
     copyRanges,
     getClipboard

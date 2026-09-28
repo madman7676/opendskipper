@@ -3,7 +3,8 @@
 
   const {
     URL_FIXER_SCHEMA_VERSION,
-    URL_FIXER_SETTINGS_KEY
+    URL_FIXER_SETTINGS_KEY,
+    StringTransforms
   } = root.OpenDSkipper;
 
   const MAX_RULES = 100;
@@ -116,44 +117,7 @@
   }
 
   function applyUrlFixer(currentUrl, rule) {
-    if (rule.operation === OPERATION.TRUNCATE_AFTER) {
-      const index = currentUrl.indexOf(rule.value);
-      return index === -1 ? currentUrl : currentUrl.slice(0, index);
-    }
-
-    if (rule.operation === OPERATION.TRUNCATE_AFTER_LAST) {
-      const index = currentUrl.lastIndexOf(rule.value);
-      return index === -1 ? currentUrl : currentUrl.slice(0, index);
-    }
-
-    if (rule.position === POSITION.START) {
-      if (!currentUrl.startsWith(rule.value)) {
-        return currentUrl;
-      }
-      const replacement = rule.operation === OPERATION.REPLACE_EXACT
-        ? rule.replacement
-        : "";
-      return replacement + currentUrl.slice(rule.value.length);
-    }
-
-    if (rule.position === POSITION.END) {
-      if (!currentUrl.endsWith(rule.value)) {
-        return currentUrl;
-      }
-      const replacement = rule.operation === OPERATION.REPLACE_EXACT
-        ? rule.replacement
-        : "";
-      return currentUrl.slice(0, currentUrl.length - rule.value.length) + replacement;
-    }
-
-    if (rule.position === POSITION.ANYWHERE) {
-      const replacement = rule.operation === OPERATION.REPLACE_EXACT
-        ? rule.replacement
-        : "";
-      return currentUrl.split(rule.value).join(replacement);
-    }
-
-    return currentUrl;
+    return StringTransforms.apply(currentUrl, { ...rule, type: rule.operation });
   }
 
   function isValidProfileKey(value) {

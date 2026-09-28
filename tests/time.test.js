@@ -144,6 +144,7 @@ function contentHarness(initialProfile, videoOrVideos, initialAdvanced = null) {
     listenerMaps.set(video, listeners);
     video.addEventListener = (name, callback) => listeners.set(name, callback);
     video.getBoundingClientRect = () => ({ width: 100, height: 100 });
+    video.querySelectorAll = () => [];
   }
   const messages = [];
   const runtimeListeners = [];
@@ -156,6 +157,7 @@ function contentHarness(initialProfile, videoOrVideos, initialAdvanced = null) {
     document,
     Element: class {},
     MutationObserver: class { observe() {} },
+    location: { href: "https://test/" },
     window: { addEventListener() {} },
     chrome: { runtime: {
       onMessage: { addListener(callback) { runtimeListeners.push(callback); } },
@@ -169,6 +171,8 @@ function contentHarness(initialProfile, videoOrVideos, initialAdvanced = null) {
     } }
   });
   run("src/shared/constants.js", context);
+  run("src/shared/string-transforms.js", context);
+  run("src/shared/episode-detector.js", context);
   run("src/shared/time.js", context);
   run("src/content/range-executor.js", context);
   const originalExecuteRange = context.OpenDSkipper.RangeExecutor.executeRange;
@@ -309,6 +313,8 @@ test("runtime executes only selected mode via shared range executor and resets o
   video.currentTime = 0;
   listeners.get("timeupdate")();
   assert.equal(video.currentTime, 0); // Handled until episode or ranges change.
+  update({ ...advanced, mode: "advanced" });
+  assert.equal(video.currentTime, 0); // The same detected episode does not reset handled state.
   update({ mode: "advanced", currentEpisode: "2", ranges: [
     { key: "0:2000", start: 0, end: 20 }
   ] });
@@ -580,7 +586,7 @@ function popupHarness(initialProfile, videoState, options = {}) {
           ? (options.currentTabs ?? [{ id: 1, url: "https://test/" }])
           : (options.focusedTabs ?? []);
       } },
-      runtime: { async sendMessage(message) {
+      runtime: { onMessage: { addListener() {} }, async sendMessage(message) {
         calls.push(message);
         let data;
         switch (message.type) {
@@ -617,6 +623,8 @@ function popupHarness(initialProfile, videoState, options = {}) {
     }
   });
   run("src/shared/constants.js", context);
+  run("src/shared/string-transforms.js", context);
+  run("src/shared/episode-detector.js", context);
   run("src/shared/time.js", context);
   run("src/shared/advanced.js", context);
   run("src/shared/url-fixers.js", context);
@@ -842,6 +850,9 @@ test("no video blocks only settings, then polling unlocks them when video appear
   e.modeSwitch.checked = true;
   await e.modeSwitch.fire("change");
   assert.equal(e.advancedSection.hidden, false);
+  assert.equal(e.advancedDetectorSection.hidden, false);
+  assert.equal(e.detectorType.disabled, false);
+  assert.equal(e.detectorSource.disabled, true);
   assert.equal(e.mainSettingsContent.inert, true);
   e.enabled.checked = false;
   await e.enabled.fire("change");
@@ -910,12 +921,12 @@ test("service worker broadcasts mode and Enabled changes without navigation", as
       tabs: {
         async sendMessage(tabId, message) { broadcasts.push({ tabId, message }); },
         async query() { return []; },
-        onUpdated: { addListener }
+        onUpdated: { addListener }, onRemoved: { addListener }
       },
       webNavigation: {
         async getFrame() { return { url: "https://test/" }; },
         onHistoryStateUpdated: { addListener },
-        onReferenceFragmentUpdated: { addListener }
+        onReferenceFragmentUpdated: { addListener }, onCommitted: { addListener }
       },
       storage: {
         sync: store(sync), local: store(local), onChanged: { addListener }
